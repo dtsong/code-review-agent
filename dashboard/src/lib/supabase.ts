@@ -1,0 +1,43 @@
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+export const supabase = createClient(supabaseUrl, supabaseKey)
+
+export interface ReviewEvent {
+  id: string
+  created_at: string
+  repo_owner: string
+  repo_name: string
+  pr_number: number
+  pr_title: string
+  pr_author: string
+  pr_url: string
+  lines_added: number
+  lines_removed: number
+  files_changed: number
+  size_gate_passed: boolean
+  lint_gate_passed: boolean
+  lint_errors_count: number
+  llm_called: boolean
+  model_used: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+  confidence_score: number
+  issues_found: any[]
+  outcome: string
+  escalated_to_human: boolean
+  review_duration_ms: number
+}
+
+export interface DailySummary {
+  review_date: string
+  total_reviews: number
+  llm_reviews: number
+  gated_reviews: number
+  total_cost: number
+  avg_confidence: number
+  escalations: number
+}
