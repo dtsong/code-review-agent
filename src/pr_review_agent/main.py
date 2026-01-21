@@ -13,6 +13,7 @@ from pr_review_agent.gates.lint_gate import run_lint
 from pr_review_agent.gates.size_gate import check_size
 from pr_review_agent.github_client import GitHubClient
 from pr_review_agent.output.console import print_results
+from pr_review_agent.output.github_comment import format_as_markdown
 from pr_review_agent.review.confidence import calculate_confidence
 from pr_review_agent.review.llm_reviewer import LLMReviewer
 from pr_review_agent.review.model_selector import select_model
@@ -24,6 +25,7 @@ def run_review(
     github_token: str,
     anthropic_key: str,
     config_path: Path | None,
+    post_comment: bool = False,
 ) -> dict[str, Any]:
     """Run the full PR review pipeline.
 
@@ -49,6 +51,7 @@ def run_review(
         "lint_gate_passed": False,
         "llm_called": False,
         "confidence_score": 0.0,
+        "comment_posted": False,
     }
 
     # Gate 1: Size check
@@ -92,6 +95,14 @@ def run_review(
     # Output results
     print_results(pr, size_result, lint_result, review_result, confidence)
 
+    # Post comment to GitHub if requested
+    if post_comment and review_result:
+        comment_body = format_as_markdown(review_result, confidence)
+        comment_url = github.post_comment(owner, repo_name, pr_number, comment_body)
+        result["comment_posted"] = True
+        result["comment_url"] = comment_url
+        print(f"\nComment posted: {comment_url}")
+
     result["duration_ms"] = int((time.time() - start_time) * 1000)
     return result
 
@@ -133,6 +144,7 @@ def main() -> int:
             github_token=github_token,
             anthropic_key=anthropic_key,
             config_path=Path(args.config) if args.config else None,
+            post_comment=args.post_comment,
         )
         return 0
     except Exception as e:
