@@ -1,0 +1,37 @@
+version: 1
+
+limits:
+  max_lines_changed: 500
+  max_files_changed: 20
+
+ignore:
+  - "*.lock"
+  - "*.json"
+  - "*.md"
+  - "package-lock.json"
+  - "pnpm-lock.yaml"
+  - "uv.lock"
+
+linting:
+  enabled: true
+  tool: ruff
+  fail_on_error: true
+  fail_threshold: 10
+
+llm:
+  provider: anthropic
+  default_model: claude-sonnet-4-20250514
+  simple_model: claude-haiku-4-20250514
+  simple_threshold_lines: 50
+  max_tokens: 4096
+
+confidence:
+  high: 0.8
+  low: 0.5
+
+review_focus:
+  - logic_errors
+  - security_issues
+  - missing_tests
+  - code_patterns
+  - naming_conventions
