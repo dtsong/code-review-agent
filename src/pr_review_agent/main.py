@@ -12,6 +12,7 @@ from pr_review_agent.config import load_config
 from pr_review_agent.gates.lint_gate import run_lint
 from pr_review_agent.gates.size_gate import check_size
 from pr_review_agent.github_client import GitHubClient
+from pr_review_agent.metrics.supabase_logger import SupabaseLogger
 from pr_review_agent.output.console import print_results
 from pr_review_agent.output.github_comment import format_as_markdown
 from pr_review_agent.review.confidence import calculate_confidence
@@ -26,6 +27,8 @@ def run_review(
     anthropic_key: str,
     config_path: Path | None,
     post_comment: bool = False,
+    supabase_url: str | None = None,
+    supabase_key: str | None = None,
 ) -> dict[str, Any]:
     """Run the full PR review pipeline.
 
@@ -104,6 +107,27 @@ def run_review(
         print(f"\nComment posted: {comment_url}")
 
     result["duration_ms"] = int((time.time() - start_time) * 1000)
+
+    # Log metrics to Supabase if configured
+    if supabase_url and supabase_key and review_result:
+        try:
+            logger = SupabaseLogger(supabase_url, supabase_key)
+            outcome = "approved" if confidence.level == "high" else (
+                "changes_requested" if confidence.level == "medium" else "escalated"
+            )
+            logger.log_review(
+                pr=pr,
+                size_result=size_result,
+                lint_result=lint_result,
+                review_result=review_result,
+                confidence=confidence,
+                outcome=outcome,
+                duration_ms=result["duration_ms"],
+            )
+            result["metrics_logged"] = True
+        except Exception:
+            result["metrics_logged"] = False
+
     return result
 
 
@@ -128,6 +152,8 @@ def main() -> int:
     # Get credentials from environment
     github_token = os.environ.get("GITHUB_TOKEN")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
 
     if not github_token:
         print("Error: GITHUB_TOKEN environment variable required", file=sys.stderr)
@@ -145,6 +171,8 @@ def main() -> int:
             anthropic_key=anthropic_key,
             config_path=Path(args.config) if args.config else None,
             post_comment=args.post_comment,
+            supabase_url=supabase_url,
+            supabase_key=supabase_key,
         )
         return 0
     except Exception as e:
