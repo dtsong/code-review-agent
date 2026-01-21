@@ -21,9 +21,6 @@ def format_as_markdown(
     lines.append("")
 
     # Confidence
-    confidence_emoji = {"high": "green", "medium": "yellow", "low": "red"}.get(
-        confidence.level, "white"
-    )
     lines.append(f"**Confidence:** {confidence.score:.2f} ({confidence.level})")
     if confidence.level == "low":
         lines.append("*This PR may require human review*")
@@ -43,12 +40,6 @@ def format_as_markdown(
 
         # Group by severity
         severity_order = ["critical", "major", "minor", "suggestion"]
-        severity_emoji = {
-            "critical": "red",
-            "major": "orange",
-            "minor": "yellow",
-            "suggestion": "blue",
-        }
 
         for severity in severity_order:
             severity_issues = [i for i in review.issues if i.severity == severity]

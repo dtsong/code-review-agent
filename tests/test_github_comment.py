@@ -61,7 +61,7 @@ def test_format_as_markdown_no_issues():
     markdown = format_as_markdown(review, confidence)
 
     assert "LGTM" in markdown
-    assert "No issues found" in markdown or "issues" not in markdown.lower() or "0 issues" in markdown.lower()
+    assert "No issues found" in markdown or "0 issues" in markdown.lower()
 
 
 def test_format_as_markdown_critical_issues():
