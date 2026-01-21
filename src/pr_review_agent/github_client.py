@@ -61,3 +61,10 @@ class GitHubClient:
             head_branch=pr.head.ref,
             url=pr.html_url,
         )
+
+    def post_comment(self, owner: str, repo: str, pr_number: int, body: str) -> str:
+        """Post a comment on a PR. Returns the comment URL."""
+        repo_obj = self.client.get_repo(f"{owner}/{repo}")
+        pr = repo_obj.get_pull(pr_number)
+        comment = pr.create_issue_comment(body)
+        return comment.html_url

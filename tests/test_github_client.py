@@ -62,3 +62,25 @@ def test_fetch_pr(mock_github_class):
     assert pr_data.lines_added == 50
     assert pr_data.lines_removed == 10
     assert "src/test.py" in pr_data.files_changed
+
+
+@patch("pr_review_agent.github_client.Github")
+def test_post_comment(mock_github_class):
+    """Test posting a comment to a PR."""
+    mock_pr = MagicMock()
+    mock_pr.create_issue_comment.return_value = MagicMock(
+        html_url="https://github.com/owner/repo/pull/1#issuecomment-123"
+    )
+
+    mock_repo = MagicMock()
+    mock_repo.get_pull.return_value = mock_pr
+
+    mock_github = MagicMock()
+    mock_github.get_repo.return_value = mock_repo
+    mock_github_class.return_value = mock_github
+
+    client = GitHubClient("fake-token")
+    url = client.post_comment("owner", "repo", 1, "Test comment")
+
+    assert url == "https://github.com/owner/repo/pull/1#issuecomment-123"
+    mock_pr.create_issue_comment.assert_called_once_with("Test comment")
