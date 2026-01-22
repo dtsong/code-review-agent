@@ -95,6 +95,7 @@ Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
 ## More Info
 
+- `docs/LOCAL_DEVELOPMENT.md` - Local development and CLI usage
 - `docs/TEST_PLAN.md` - Testing guide with scenarios
 - `docs/AGENTIC_CAPABILITIES_SPEC.md` - Detailed feature spec
 - `docs/DEMO_QUICK_REF.md` - Full MVP spec reference
