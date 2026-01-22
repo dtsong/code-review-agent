@@ -9,5 +9,39 @@ wheels/
 # Virtual environments
 .venv/
 
-# Ruff cache
+# Linting and formatting
 .ruff_cache/
+
+# Type checking
+.mypy_cache/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Test configuration (contains PR numbers)
+test-scenarios.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log

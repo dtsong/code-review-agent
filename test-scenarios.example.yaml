@@ -1,0 +1,18 @@
+# Test scenarios for local development
+# Copy to test-scenarios.yaml and fill in your PR numbers
+
+scenarios:
+  # Simple repo - good for quick testing
+  simple:
+    repo: dtsong/mtg-commander-roi
+    prs:
+      clean: 1      # Small, well-written PR
+      # large: 2    # PR with many changes (if available)
+
+  # Complex repo - good for thorough testing
+  complex:
+    repo: dtsong/appraisehq
+    prs:
+      clean: 1      # Normal PR
+      # large: 2    # Large PR to test size gate
+      # lint: 3     # PR with lint issues
