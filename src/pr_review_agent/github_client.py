@@ -47,7 +47,18 @@ class GitHubClient:
 
         Returns:
             GitHubClient instance authenticated with an installation token
+
+        Raises:
+            ValueError: If credentials are invalid or authentication fails
         """
+        # Validate private key format
+        if "-----BEGIN" not in private_key or "-----END" not in private_key:
+            raise ValueError(
+                "Invalid private key format. Key must be in PEM format "
+                "(should contain -----BEGIN RSA PRIVATE KEY----- or similar). "
+                "Check GITHUB_APP_PRIVATE_KEY_BASE64 is correctly encoded."
+            )
+
         # Generate JWT
         now = int(time.time())
         payload = {
@@ -55,20 +66,47 @@ class GitHubClient:
             "exp": now + 600,
             "iss": app_id,
         }
-        token = jwt.encode(payload, private_key, algorithm="RS256")
+        try:
+            token = jwt.encode(payload, private_key, algorithm="RS256")
+        except Exception as e:
+            raise ValueError(
+                f"Failed to sign JWT with private key: {e}. "
+                "Check that GITHUB_APP_PRIVATE_KEY_BASE64 contains the correct private key "
+                "for your GitHub App."
+            ) from e
 
         # Exchange JWT for installation token
+        url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
         response = requests.post(
-            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            url,
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github+json",
             },
             timeout=30,
         )
-        response.raise_for_status()
-        installation_token = response.json()["token"]
 
+        if response.status_code == 401:
+            raise ValueError(
+                f"GitHub App authentication failed (401 Unauthorized). "
+                f"Possible causes:\n"
+                f"  - GITHUB_APP_ID ({app_id}) doesn't match the private key\n"
+                f"  - Private key was regenerated but secret not updated\n"
+                f"  - App ID is incorrect (find it at: https://github.com/settings/apps)"
+            )
+        elif response.status_code == 404:
+            raise ValueError(
+                f"Installation not found (404). "
+                f"GITHUB_APP_INSTALLATION_ID ({installation_id}) may be incorrect.\n"
+                f"Find your installation ID at: https://github.com/settings/installations\n"
+                f"Click 'Configure' on your app - the ID is in the URL."
+            )
+        elif not response.ok:
+            raise ValueError(
+                f"GitHub API error ({response.status_code}): {response.text}"
+            )
+
+        installation_token = response.json()["token"]
         return cls(installation_token)
 
     def fetch_pr(self, owner: str, repo: str, pr_number: int) -> PRData:
