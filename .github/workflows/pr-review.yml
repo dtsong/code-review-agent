@@ -18,10 +18,11 @@ jobs:
   ai-review:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout PR Review Agent
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          repository: dtsong/code-review-agent
+          path: pr-review-agent
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,9 +33,11 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
+        working-directory: pr-review-agent
         run: uv sync
 
       - name: Run PR Review Agent
+        working-directory: pr-review-agent
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
