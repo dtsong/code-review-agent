@@ -1,0 +1,57 @@
+name: PR Review (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      repo:
+        description: 'Repository in owner/repo format'
+        required: true
+        type: string
+      pr_number:
+        description: 'Pull request number'
+        required: true
+        type: number
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      GH_APP_ID:
+        required: true
+      GH_APP_INSTALLATION_ID:
+        required: true
+      GH_APP_PRIVATE_KEY_BASE64:
+        required: true
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code-review-agent
+        uses: actions/checkout@v4
+        with:
+          repository: dtsong/code-review-agent
+          ref: main
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+      
+      - name: Install dependencies
+        run: uv sync
+      
+      - name: Run PR Review Agent
+        env:
+          GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+          GITHUB_APP_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
+          GITHUB_APP_PRIVATE_KEY_BASE64: ${{ secrets.GH_APP_PRIVATE_KEY_BASE64 }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          uv run pr-review-agent \
+            --repo ${{ inputs.repo }} \
+            --pr ${{ inputs.pr_number }} \
+            --post-comment

@@ -21,7 +21,7 @@ linting:
 llm:
   provider: anthropic
   default_model: claude-sonnet-4-20250514
-  simple_model: claude-haiku-4-20250514
+  simple_model: claude-haiku-4-5-20251001
   simple_threshold_lines: 50
   max_tokens: 4096
 

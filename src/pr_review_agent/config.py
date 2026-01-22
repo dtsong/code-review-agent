@@ -30,7 +30,7 @@ class LLMConfig:
 
     provider: str = "anthropic"
     default_model: str = "claude-sonnet-4-20250514"
-    simple_model: str = "claude-haiku-4-20250514"
+    simple_model: str = "claude-haiku-4-5-20251001"
     simple_threshold_lines: int = 50
     max_tokens: int = 4096
 
