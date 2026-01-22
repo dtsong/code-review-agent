@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
 """CLI entrypoint for PR Review Agent."""
 
 import argparse
@@ -8,7 +12,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pr_review_agent.analysis.pre_analyzer import analyze_pr
 from pr_review_agent.config import load_config
+from pr_review_agent.execution.retry_handler import retry_with_adaptation, RetryStrategy
 from pr_review_agent.gates.lint_gate import run_lint
 from pr_review_agent.gates.size_gate import check_size
 from pr_review_agent.github_client import GitHubClient
@@ -16,8 +22,7 @@ from pr_review_agent.metrics.supabase_logger import SupabaseLogger
 from pr_review_agent.output.console import print_results
 from pr_review_agent.output.github_comment import format_as_markdown
 from pr_review_agent.review.confidence import calculate_confidence
-from pr_review_agent.review.llm_reviewer import LLMReviewer
-from pr_review_agent.review.model_selector import select_model
+from pr_review_agent.review.llm_reviewer import LLMReviewer, LLMReviewResult
 
 
 def run_review(
@@ -30,7 +35,7 @@ def run_review(
     supabase_url: str | None = None,
     supabase_key: str | None = None,
 ) -> dict[str, Any]:
-    """Run the full PR review pipeline.
+    """Run the full PR review pipeline with adaptive strategy.
 
     Returns dict with results for metrics logging.
     """
@@ -57,6 +62,16 @@ def run_review(
         "comment_posted": False,
     }
 
+    # Step 1: Pre-analysis (new agentic capability)
+    print(f"\n🔍 Analyzing PR #{pr_number}...")
+    analysis = analyze_pr(pr)
+    print(f"   Type: {analysis.pr_type.value}")
+    print(f"   Risk: {analysis.risk_level.value}")
+    print(f"   Complexity: {analysis.complexity}")
+    print(f"   Focus: {', '.join(analysis.focus_areas)}")
+    print(f"   Model: {analysis.suggested_model}")
+    print()
+
     # Gate 1: Size check
     size_result = check_size(pr, config)
     result["size_gate_passed"] = size_result.passed
@@ -69,8 +84,7 @@ def run_review(
     # Gate 2: Lint check
     # Filter files based on ignore patterns
     files_to_lint = [
-        f for f in pr.files_changed
-        if not any(_match_pattern(f, p) for p in config.ignore)
+        f for f in pr.files_changed if not any(_match_pattern(f, p) for p in config.ignore)
     ]
     lint_result = run_lint(files_to_lint, config)
     result["lint_gate_passed"] = lint_result.passed
@@ -80,15 +94,35 @@ def run_review(
         result["duration_ms"] = int((time.time() - start_time) * 1000)
         return result
 
-    # All gates passed - run LLM review
+    # All gates passed - run LLM review with adaptive retry
     llm_reviewer = LLMReviewer(anthropic_key)
-    model = select_model(pr, config)
-    review_result = llm_reviewer.review(
-        diff=pr.diff,
-        pr_description=pr.description,
-        model=model,
-        config=config,
+
+    # Use the model suggested by pre-analysis
+    base_model = analysis.suggested_model
+
+    def do_review(strategy: RetryStrategy) -> LLMReviewResult:
+        """Execute review with the given strategy."""
+        print(f"   Attempt with {strategy.model}...")
+        return llm_reviewer.review(
+            diff=pr.diff,
+            pr_description=pr.description,
+            model=strategy.model,
+            config=config,
+            focus_areas=analysis.focus_areas,
+        )
+
+    def validate_review(review: LLMReviewResult) -> bool:
+        """Validate the review has meaningful content."""
+        return review is not None and len(review.summary) > 20
+
+    print("🤖 Running LLM Review...")
+    review_result = retry_with_adaptation(
+        operation=do_review,
+        base_model=base_model,
+        max_attempts=3,
+        validator=validate_review,
     )
+    print(f"   ✓ Review complete (confidence check pending)")
     result["llm_called"] = True
 
     # Calculate confidence
@@ -112,8 +146,10 @@ def run_review(
     if supabase_url and supabase_key and review_result:
         try:
             logger = SupabaseLogger(supabase_url, supabase_key)
-            outcome = "approved" if confidence.level == "high" else (
-                "changes_requested" if confidence.level == "medium" else "escalated"
+            outcome = (
+                "approved"
+                if confidence.level == "high"
+                else ("changes_requested" if confidence.level == "medium" else "escalated")
             )
             logger.log_review(
                 pr=pr,

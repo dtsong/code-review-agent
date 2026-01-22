@@ -29,9 +29,9 @@ def test_calculate_cost():
     expected = (1000 * 0.003 / 1000) + (500 * 0.015 / 1000)
     assert abs(cost - expected) < 0.0001
 
-    # Haiku pricing
-    cost = reviewer._calculate_cost("claude-haiku-4-20250514", 1000, 500)
-    expected = (1000 * 0.00025 / 1000) + (500 * 0.00125 / 1000)
+    # Haiku pricing (using model name from PRICING dict)
+    cost = reviewer._calculate_cost("claude-haiku-4-5-20251001", 1000, 500)
+    expected = (1000 * 0.001 / 1000) + (500 * 0.005 / 1000)
     assert abs(cost - expected) < 0.0001
 
 

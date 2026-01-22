@@ -10,12 +10,7 @@ from pr_review_agent.config import Config
 REVIEW_SYSTEM_PROMPT = """\
 You are an expert code reviewer. Review the PR diff and provide actionable feedback.
 
-Focus on:
-1. Logic errors and bugs
-2. Security vulnerabilities
-3. Missing test coverage
-4. Code patterns and best practices
-5. Naming and readability
+{focus_instruction}
 
 DO NOT focus on (handled by linters):
 - Formatting issues
@@ -23,22 +18,69 @@ DO NOT focus on (handled by linters):
 - Whitespace problems
 
 Respond in JSON format:
-{
+{{
   "summary": "Brief overall assessment",
   "issues": [
-    {
+    {{
       "severity": "critical|major|minor|suggestion",
       "category": "logic|security|performance|style|testing|documentation",
       "file": "filename",
       "line": null or line number,
       "description": "What's wrong",
       "suggestion": "How to fix it"
-    }
+    }}
   ],
   "strengths": ["What the PR does well"],
   "concerns": ["High-level concerns"],
   "questions": ["Questions for the author"]
-}"""
+}}"""
+
+
+DEFAULT_FOCUS_AREAS = [
+    "logic_correctness",
+    "edge_cases",
+    "security_issues",
+    "test_coverage",
+    "code_quality",
+]
+
+
+def _build_focus_instruction(focus_areas: list[str] | None) -> str:
+    """Build focus instruction based on provided areas."""
+    if not focus_areas:
+        focus_areas = DEFAULT_FOCUS_AREAS
+
+    focus_map = {
+        "logic_correctness": "Logic errors and bugs",
+        "edge_cases": "Edge cases and boundary conditions",
+        "security_issues": "Security vulnerabilities",
+        "security_implications": "Security implications of the changes",
+        "test_coverage": "Missing test coverage",
+        "code_quality": "Code patterns and best practices",
+        "root_cause": "Root cause analysis for bug fixes",
+        "regression_risk": "Potential regression risks",
+        "behavior_preservation": "Behavior preservation during refactoring",
+        "performance": "Performance implications",
+        "vulnerabilities": "Security vulnerabilities and attack vectors",
+        "auth_logic": "Authentication and authorization logic",
+        "input_validation": "Input validation and sanitization",
+        "secrets": "Exposure of secrets or credentials",
+        "coverage_gaps": "Test coverage gaps",
+        "test_quality": "Test quality and assertions",
+        "assertions": "Proper test assertions",
+        "accuracy": "Documentation accuracy",
+        "completeness": "Documentation completeness",
+        "clarity": "Documentation clarity",
+        "breaking_changes": "Breaking changes in dependencies",
+        "security_advisories": "Security advisories in dependencies",
+        "compatibility": "Backward compatibility",
+        "environment_consistency": "Environment consistency",
+    }
+
+    focus_items = [focus_map.get(area, area) for area in focus_areas]
+    numbered_focus = "\n".join(f"{i+1}. {item}" for i, item in enumerate(focus_items))
+
+    return f"Focus on:\n{numbered_focus}"
 
 
 @dataclass
@@ -73,7 +115,7 @@ class LLMReviewer:
 
     PRICING = {
         "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
-        "claude-haiku-4-20250514": {"input": 0.00025, "output": 0.00125},
+        "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
     }
 
     def __init__(self, api_key: str):
@@ -86,6 +128,7 @@ class LLMReviewer:
         pr_description: str,
         model: str,
         config: Config,
+        focus_areas: list[str] | None = None,
     ) -> LLMReviewResult:
         """Review the PR diff using Claude."""
         user_prompt = f"""## PR Description
@@ -98,10 +141,14 @@ class LLMReviewer:
 
 Please review this PR and provide your feedback in the JSON format specified."""
 
+        # Build system prompt with focus areas
+        focus_instruction = _build_focus_instruction(focus_areas)
+        system_prompt = REVIEW_SYSTEM_PROMPT.format(focus_instruction=focus_instruction)
+
         response = self.client.messages.create(
             model=model,
             max_tokens=config.llm.max_tokens,
-            system=REVIEW_SYSTEM_PROMPT,
+            system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
 

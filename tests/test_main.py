@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from pr_review_agent.main import run_review
+from pr_review_agent.execution.retry_handler import RetryStrategy
 
 
 @patch("pr_review_agent.main.GitHubClient")
@@ -14,9 +15,11 @@ def test_run_review_size_gate_fails(mock_github_class):
     mock_pr.number = 1
     mock_pr.title = "Big PR"
     mock_pr.author = "user"
+    mock_pr.description = "Large refactor"
     mock_pr.url = "https://github.com/test/repo/pull/1"
     mock_pr.lines_added = 1000
     mock_pr.lines_removed = 500
+    mock_pr.lines_changed = 1500  # Required for pre_analyzer
     mock_pr.files_changed = ["file.py"] * 30
 
     mock_client = MagicMock()
@@ -35,9 +38,10 @@ def test_run_review_size_gate_fails(mock_github_class):
     assert result["llm_called"] is False
 
 
+@patch("pr_review_agent.main.retry_with_adaptation")
 @patch("pr_review_agent.main.LLMReviewer")
 @patch("pr_review_agent.main.GitHubClient")
-def test_run_review_full_flow(mock_github_class, mock_llm_class):
+def test_run_review_full_flow(mock_github_class, mock_llm_class, mock_retry):
     """Full review flow with passing gates."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -50,6 +54,7 @@ def test_run_review_full_flow(mock_github_class, mock_llm_class):
     mock_pr.url = "https://github.com/test/repo/pull/1"
     mock_pr.lines_added = 50
     mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60  # Required for pre_analyzer
     mock_pr.files_changed = ["file.py"]
 
     mock_client = MagicMock()
@@ -57,7 +62,7 @@ def test_run_review_full_flow(mock_github_class, mock_llm_class):
     mock_github_class.return_value = mock_client
 
     mock_review = MagicMock()
-    mock_review.summary = "LGTM"
+    mock_review.summary = "LGTM - looks good to me"
     mock_review.issues = []
     mock_review.strengths = ["Good"]
     mock_review.concerns = []
@@ -70,6 +75,9 @@ def test_run_review_full_flow(mock_github_class, mock_llm_class):
     mock_reviewer = MagicMock()
     mock_reviewer.review.return_value = mock_review
     mock_llm_class.return_value = mock_reviewer
+
+    # Mock retry_with_adaptation to return the review directly
+    mock_retry.return_value = mock_review
 
     result = run_review(
         repo="test/repo",
@@ -84,9 +92,10 @@ def test_run_review_full_flow(mock_github_class, mock_llm_class):
     assert result["confidence_score"] > 0
 
 
+@patch("pr_review_agent.main.retry_with_adaptation")
 @patch("pr_review_agent.main.LLMReviewer")
 @patch("pr_review_agent.main.GitHubClient")
-def test_run_review_posts_comment(mock_github_class, mock_llm_class):
+def test_run_review_posts_comment(mock_github_class, mock_llm_class, mock_retry):
     """Review should post comment when post_comment=True."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -99,6 +108,7 @@ def test_run_review_posts_comment(mock_github_class, mock_llm_class):
     mock_pr.url = "https://github.com/test/repo/pull/1"
     mock_pr.lines_added = 50
     mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60  # Required for pre_analyzer
     mock_pr.files_changed = ["file.py"]
 
     mock_client = MagicMock()
@@ -107,7 +117,7 @@ def test_run_review_posts_comment(mock_github_class, mock_llm_class):
     mock_github_class.return_value = mock_client
 
     mock_review = MagicMock()
-    mock_review.summary = "LGTM"
+    mock_review.summary = "LGTM - looks good to me"
     mock_review.issues = []
     mock_review.strengths = ["Good"]
     mock_review.concerns = []
@@ -120,6 +130,9 @@ def test_run_review_posts_comment(mock_github_class, mock_llm_class):
     mock_reviewer = MagicMock()
     mock_reviewer.review.return_value = mock_review
     mock_llm_class.return_value = mock_reviewer
+
+    # Mock retry_with_adaptation to return the review directly
+    mock_retry.return_value = mock_review
 
     result = run_review(
         repo="test/repo",
