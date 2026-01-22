@@ -122,7 +122,6 @@ pr-review-agent/
 │       ├── main.py                # CLI entrypoint
 │       ├── config.py              # Load .ai-review.yaml
 │       ├── github_client.py       # Fetch PR, post comments
-│       ├── diff_parser.py         # Parse and analyze diff
 │       ├── gates/
 │       │   ├── __init__.py
 │       │   ├── size_gate.py       # Diff size validation
@@ -186,7 +185,7 @@ linting:
 llm:
   provider: anthropic
   default_model: claude-sonnet-4-20250514
-  simple_model: claude-haiku-4-20250514    # For small/simple PRs
+  simple_model: claude-haiku-4-5-20251001    # For small/simple PRs
   simple_threshold_lines: 50   # PRs under this use simple_model
   max_tokens: 4096
 
@@ -460,35 +459,35 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
 
 **Test:** `uv run pr-review-agent --repo owner/repo --pr 123`
 
-### Phase 2: GitHub Integration
+### Phase 2: GitHub Integration (COMPLETED)
 
 **Goal:** Posts comments to GitHub PRs.
 
-- [ ] Format review as GitHub-flavored markdown
-- [ ] Post comment via GitHub API
-- [ ] GitHub Action workflow file
+- [x] Format review as GitHub-flavored markdown
+- [x] Post comment via GitHub API
+- [x] GitHub Action workflow file
 
 **Test:** Create test PR, run action, see comment appear.
 
-### Phase 3: Metrics & Dashboard
+### Phase 3: Metrics & Dashboard (COMPLETED)
 
 **Goal:** Supabase logging + basic Vercel dashboard.
 
-- [ ] Supabase project setup
-- [ ] Create `review_events` table
-- [ ] Supabase logger implementation
-- [ ] Basic Next.js dashboard
-- [ ] Deploy to Vercel
+- [x] Supabase project setup
+- [x] Create `review_events` table
+- [x] Supabase logger implementation
+- [x] Basic Next.js dashboard
+- [x] Deploy to Vercel
 
 **Test:** Run review, see data in Supabase, view in dashboard.
 
-### Phase 4: Polish
+### Phase 4: Polish (IN PROGRESS)
 
 **Goal:** Demo-ready.
 
-- [ ] README with architecture diagram
-- [ ] Error handling and edge cases
-- [ ] Example `.ai-review.yaml` configs
+- [x] README with architecture diagram
+- [x] Error handling and edge cases
+- [x] Example `.ai-review.yaml` configs
 - [ ] Demo video or screenshots
 - [ ] Demo preparation
 

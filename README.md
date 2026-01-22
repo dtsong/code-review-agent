@@ -96,7 +96,7 @@ linting:
 llm:
   provider: anthropic
   default_model: claude-sonnet-4-20250514  # For larger PRs
-  simple_model: claude-haiku-4-20250514    # For small PRs (<50 lines)
+  simple_model: claude-haiku-4-5-20251001    # For small PRs (<50 lines)
   simple_threshold_lines: 50
   max_tokens: 4096
 
