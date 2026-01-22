@@ -2,17 +2,10 @@
 # Copy to test-scenarios.yaml and fill in your PR numbers
 
 scenarios:
-  # Simple repo - good for quick testing
-  simple:
+  # Primary test repo - mtg-commander-roi
+  default:
     repo: dtsong/mtg-commander-roi
     prs:
       clean: 1      # Small, well-written PR
-      # large: 2    # PR with many changes (if available)
-
-  # Complex repo - good for thorough testing
-  complex:
-    repo: dtsong/appraisehq
-    prs:
-      clean: 1      # Normal PR
-      # large: 2    # Large PR to test size gate
-      # lint: 3     # PR with lint issues
+      # large: 2    # PR with many changes (to test size gate)
+      # lint: 3     # PR with lint issues (to test lint gate)
