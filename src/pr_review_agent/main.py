@@ -198,10 +198,13 @@ def main() -> int:
     # Create GitHub client (prefer App credentials for cross-repo access)
     if app_id and app_installation_id and app_private_key_b64:
         # Handle both raw PEM and base64-encoded PEM
-        if app_private_key_b64.startswith("-----BEGIN"):
-            private_key = app_private_key_b64
+        key_value = app_private_key_b64.strip()
+        if "-----BEGIN" in key_value:
+            # Raw PEM key - may have escaped newlines from env var
+            private_key = key_value.replace("\\n", "\n")
         else:
-            private_key = base64.b64decode(app_private_key_b64).decode("utf-8")
+            # Base64-encoded PEM key
+            private_key = base64.b64decode(key_value).decode("utf-8")
         github_client = GitHubClient.from_app_credentials(
             app_id, app_installation_id, private_key
         )
