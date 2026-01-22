@@ -1,7 +1,10 @@
 """GitHub client for fetching PR data."""
 
+import time
 from dataclasses import dataclass
 
+import jwt
+import requests
 from github import Github
 
 
@@ -30,6 +33,43 @@ class GitHubClient:
     def __init__(self, token: str):
         """Initialize with GitHub token."""
         self.client = Github(token)
+
+    @classmethod
+    def from_app_credentials(
+        cls, app_id: str, installation_id: str, private_key: str
+    ) -> "GitHubClient":
+        """Create GitHubClient using GitHub App credentials.
+
+        Args:
+            app_id: GitHub App ID
+            installation_id: GitHub App installation ID
+            private_key: GitHub App private key (PEM format)
+
+        Returns:
+            GitHubClient instance authenticated with an installation token
+        """
+        # Generate JWT
+        now = int(time.time())
+        payload = {
+            "iat": now - 60,
+            "exp": now + 600,
+            "iss": app_id,
+        }
+        token = jwt.encode(payload, private_key, algorithm="RS256")
+
+        # Exchange JWT for installation token
+        response = requests.post(
+            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        installation_token = response.json()["token"]
+
+        return cls(installation_token)
 
     def fetch_pr(self, owner: str, repo: str, pr_number: int) -> PRData:
         """Fetch all PR data needed for review."""

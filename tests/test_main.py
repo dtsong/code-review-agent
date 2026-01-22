@@ -6,8 +6,7 @@ from pr_review_agent.main import run_review
 from pr_review_agent.execution.retry_handler import RetryStrategy
 
 
-@patch("pr_review_agent.main.GitHubClient")
-def test_run_review_size_gate_fails(mock_github_class):
+def test_run_review_size_gate_fails():
     """Review should stop when size gate fails."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -24,12 +23,11 @@ def test_run_review_size_gate_fails(mock_github_class):
 
     mock_client = MagicMock()
     mock_client.fetch_pr.return_value = mock_pr
-    mock_github_class.return_value = mock_client
 
     result = run_review(
         repo="test/repo",
         pr_number=1,
-        github_token="fake",
+        github_client=mock_client,
         anthropic_key="fake",
         config_path=None,
     )
@@ -40,8 +38,7 @@ def test_run_review_size_gate_fails(mock_github_class):
 
 @patch("pr_review_agent.main.retry_with_adaptation")
 @patch("pr_review_agent.main.LLMReviewer")
-@patch("pr_review_agent.main.GitHubClient")
-def test_run_review_full_flow(mock_github_class, mock_llm_class, mock_retry):
+def test_run_review_full_flow(mock_llm_class, mock_retry):
     """Full review flow with passing gates."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -59,7 +56,6 @@ def test_run_review_full_flow(mock_github_class, mock_llm_class, mock_retry):
 
     mock_client = MagicMock()
     mock_client.fetch_pr.return_value = mock_pr
-    mock_github_class.return_value = mock_client
 
     mock_review = MagicMock()
     mock_review.summary = "LGTM - looks good to me"
@@ -82,7 +78,7 @@ def test_run_review_full_flow(mock_github_class, mock_llm_class, mock_retry):
     result = run_review(
         repo="test/repo",
         pr_number=1,
-        github_token="fake",
+        github_client=mock_client,
         anthropic_key="fake",
         config_path=None,
     )
@@ -94,8 +90,7 @@ def test_run_review_full_flow(mock_github_class, mock_llm_class, mock_retry):
 
 @patch("pr_review_agent.main.retry_with_adaptation")
 @patch("pr_review_agent.main.LLMReviewer")
-@patch("pr_review_agent.main.GitHubClient")
-def test_run_review_posts_comment(mock_github_class, mock_llm_class, mock_retry):
+def test_run_review_posts_comment(mock_llm_class, mock_retry):
     """Review should post comment when post_comment=True."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -114,7 +109,6 @@ def test_run_review_posts_comment(mock_github_class, mock_llm_class, mock_retry)
     mock_client = MagicMock()
     mock_client.fetch_pr.return_value = mock_pr
     mock_client.post_comment.return_value = "https://github.com/test/repo/pull/1#comment"
-    mock_github_class.return_value = mock_client
 
     mock_review = MagicMock()
     mock_review.summary = "LGTM - looks good to me"
@@ -137,7 +131,7 @@ def test_run_review_posts_comment(mock_github_class, mock_llm_class, mock_retry)
     result = run_review(
         repo="test/repo",
         pr_number=1,
-        github_token="fake",
+        github_client=mock_client,
         anthropic_key="fake",
         config_path=None,
         post_comment=True,

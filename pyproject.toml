@@ -7,8 +7,10 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.40.0",
     "pygithub>=2.5.0",
+    "pyjwt>=2.8.0",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0",
+    "requests>=2.31.0",
     "supabase>=2.0.0",
 ]
 

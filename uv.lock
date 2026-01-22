@@ -764,8 +764,10 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "pygithub" },
+    { name = "pyjwt" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "requests" },
     { name = "supabase" },
 ]
 
@@ -781,8 +783,10 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.40.0" },
     { name = "pygithub", specifier = ">=2.5.0" },
+    { name = "pyjwt", specifier = ">=2.8.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "requests", specifier = ">=2.31.0" },
     { name = "supabase", specifier = ">=2.0.0" },
 ]
 

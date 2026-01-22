@@ -5,6 +5,7 @@ load_dotenv()
 """CLI entrypoint for PR Review Agent."""
 
 import argparse
+import base64
 import fnmatch
 import os
 import sys
@@ -28,7 +29,7 @@ from pr_review_agent.review.llm_reviewer import LLMReviewer, LLMReviewResult
 def run_review(
     repo: str,
     pr_number: int,
-    github_token: str,
+    github_client: GitHubClient,
     anthropic_key: str,
     config_path: Path | None,
     post_comment: bool = False,
@@ -44,8 +45,8 @@ def run_review(
     # Load config
     config = load_config(config_path or Path(".ai-review.yaml"))
 
-    # Initialize clients
-    github = GitHubClient(github_token)
+    # Use provided GitHub client
+    github = github_client
 
     # Fetch PR data
     owner, repo_name = repo.split("/")
@@ -187,12 +188,27 @@ def main() -> int:
 
     # Get credentials from environment
     github_token = os.environ.get("GITHUB_TOKEN")
+    app_id = os.environ.get("GITHUB_APP_ID")
+    app_installation_id = os.environ.get("GITHUB_APP_INSTALLATION_ID")
+    app_private_key_b64 = os.environ.get("GITHUB_APP_PRIVATE_KEY_BASE64")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
 
-    if not github_token:
-        print("Error: GITHUB_TOKEN environment variable required", file=sys.stderr)
+    # Create GitHub client (prefer App credentials for cross-repo access)
+    if app_id and app_installation_id and app_private_key_b64:
+        private_key = base64.b64decode(app_private_key_b64).decode("utf-8")
+        github_client = GitHubClient.from_app_credentials(
+            app_id, app_installation_id, private_key
+        )
+    elif github_token:
+        github_client = GitHubClient(github_token)
+    else:
+        print(
+            "Error: Either GITHUB_TOKEN or GitHub App credentials "
+            "(GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY_BASE64) required",
+            file=sys.stderr,
+        )
         return 1
 
     if not anthropic_key:
@@ -203,7 +219,7 @@ def main() -> int:
         run_review(
             repo=args.repo,
             pr_number=args.pr,
-            github_token=github_token,
+            github_client=github_client,
             anthropic_key=anthropic_key,
             config_path=Path(args.config) if args.config else None,
             post_comment=args.post_comment,
