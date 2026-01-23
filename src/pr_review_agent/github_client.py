@@ -146,3 +146,50 @@ class GitHubClient:
         pr = repo_obj.get_pull(pr_number)
         comment = pr.create_issue_comment(body)
         return comment.html_url
+
+    def post_review_comments(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        comments: list[dict],
+        body: str = "",
+        event: str = "COMMENT",
+    ) -> str:
+        """Post a review with inline comments using the GitHub Review API.
+
+        Args:
+            owner: Repository owner.
+            repo: Repository name.
+            pr_number: PR number.
+            comments: List of dicts with keys: path, line, body, and
+                optionally start_line, side.
+            body: Overall review body text.
+            event: Review event type (COMMENT, APPROVE, REQUEST_CHANGES).
+
+        Returns:
+            URL of the created review.
+        """
+        repo_obj = self.client.get_repo(f"{owner}/{repo}")
+        pr = repo_obj.get_pull(pr_number)
+        commit = pr.get_commits().reversed[0]
+
+        # Build review comments in the format PyGithub expects
+        review_comments = []
+        for c in comments:
+            comment_data = {
+                "path": c["path"],
+                "body": c["body"],
+                "line": c["line"],
+            }
+            if c.get("start_line") and c["start_line"] != c["line"]:
+                comment_data["start_line"] = c["start_line"]
+            review_comments.append(comment_data)
+
+        review = pr.create_review(
+            commit=commit,
+            body=body,
+            event=event,
+            comments=review_comments,
+        )
+        return review.html_url
