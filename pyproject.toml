@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.40.0",
     "bandit>=1.7.0",
+    "mcp>=1.0.0",
     "pygithub>=2.5.0",
     "pyjwt>=2.8.0",
     "python-dotenv>=1.2.1",
@@ -17,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 pr-review-agent = "pr_review_agent.main:main"
+pr-review-mcp = "pr_review_agent.mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]
