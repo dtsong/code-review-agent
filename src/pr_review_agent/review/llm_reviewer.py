@@ -20,7 +20,29 @@ DO NOT focus on (handled by linters):
 
 For each issue, provide the exact file path and line number(s) from the diff.
 Use start_line and end_line for multi-line issues.
-If you have a concrete code fix, include it in the "code_suggestion" field.
+
+## Code Suggestions
+
+For critical and major issues where you are confident in the fix, provide a \
+concrete code fix in the "code_suggestion" field. This will be rendered as a \
+GitHub suggestion block that the author can apply with one click.
+
+Rules for code_suggestion:
+- ONLY provide for critical or major severity issues
+- ONLY provide when you are highly confident the fix is correct
+- The code_suggestion must be the EXACT replacement text for the lines from \
+start_line to end_line (inclusive)
+- Preserve the original indentation and style
+- Do NOT include the code_suggestion field for minor issues or suggestions
+- If the fix spans a single line, set start_line and end_line to the same value
+
+Example: if start_line=10, end_line=12, and the original code is:
+  x = get_data()
+  result = process(x)
+  return result
+
+A valid code_suggestion replacing those 3 lines would be:
+  "code_suggestion": "  x = get_data()\\n  if x is None:\\n    return None\\n  return process(x)"
 
 Respond in JSON format:
 {{
@@ -31,10 +53,10 @@ Respond in JSON format:
       "category": "logic|security|performance|style|testing|documentation",
       "file": "path/to/file.py",
       "start_line": 42,
-      "end_line": null,
+      "end_line": 42,
       "description": "What's wrong",
       "suggestion": "How to fix it (text explanation)",
-      "code_suggestion": null
+      "code_suggestion": "replacement code here (only for critical/major)"
     }}
   ],
   "strengths": ["What the PR does well"],
@@ -210,12 +232,19 @@ Please review this PR and provide your feedback in the JSON format specified."""
                 if issue.suggestion:
                     body += f"\n\n*Suggestion: {issue.suggestion}*"
 
+                # Only include code suggestions for high-confidence issues
+                filtered_suggestion = (
+                    code_suggestion
+                    if issue.severity in ("critical", "major")
+                    else None
+                )
+
                 inline_comments.append(InlineComment(
                     file=issue.file,
                     start_line=start_line,
                     end_line=end_line,
                     body=body,
-                    suggestion=code_suggestion,
+                    suggestion=filtered_suggestion,
                 ))
 
         input_tokens = response.usage.input_tokens
