@@ -18,6 +18,10 @@ DO NOT focus on (handled by linters):
 - Import ordering
 - Whitespace problems
 
+For each issue, provide the exact file path and line number(s) from the diff.
+Use start_line and end_line for multi-line issues.
+If you have a concrete code fix, include it in the "code_suggestion" field.
+
 Respond in JSON format:
 {{
   "summary": "Brief overall assessment",
@@ -25,10 +29,12 @@ Respond in JSON format:
     {{
       "severity": "critical|major|minor|suggestion",
       "category": "logic|security|performance|style|testing|documentation",
-      "file": "filename",
-      "line": null or line number,
+      "file": "path/to/file.py",
+      "start_line": 42,
+      "end_line": null,
       "description": "What's wrong",
-      "suggestion": "How to fix it"
+      "suggestion": "How to fix it (text explanation)",
+      "code_suggestion": null
     }}
   ],
   "strengths": ["What the PR does well"],
@@ -94,6 +100,20 @@ class ReviewIssue:
     line: int | None
     description: str
     suggestion: str | None
+    start_line: int | None = None
+    end_line: int | None = None
+    code_suggestion: str | None = None
+
+
+@dataclass
+class InlineComment:
+    """Line-specific comment for GitHub Review API."""
+
+    file: str
+    start_line: int
+    end_line: int | None
+    body: str
+    suggestion: str | None  # Code suggestion in diff format
 
 
 @dataclass
@@ -101,6 +121,7 @@ class LLMReviewResult:
     """Result from LLM review."""
 
     issues: list[ReviewIssue] = field(default_factory=list)
+    inline_comments: list[InlineComment] = field(default_factory=list)
     summary: str = ""
     strengths: list[str] = field(default_factory=list)
     concerns: list[str] = field(default_factory=list)
@@ -161,17 +182,41 @@ Please review this PR and provide your feedback in the JSON format specified."""
             else:
                 data = {"summary": response_text, "issues": []}
 
-        issues = [
-            ReviewIssue(
+        issues = []
+        inline_comments = []
+
+        for i in data.get("issues", []):
+            start_line = i.get("start_line") or i.get("line")
+            end_line = i.get("end_line")
+            code_suggestion = i.get("code_suggestion")
+
+            issue = ReviewIssue(
                 severity=i.get("severity", "minor"),
                 category=i.get("category", "style"),
                 file=i.get("file", ""),
-                line=i.get("line"),
+                line=start_line,
                 description=i.get("description", ""),
                 suggestion=i.get("suggestion"),
+                start_line=start_line,
+                end_line=end_line,
+                code_suggestion=code_suggestion,
             )
-            for i in data.get("issues", [])
-        ]
+            issues.append(issue)
+
+            # Build inline comment if we have file + line info
+            if issue.file and start_line:
+                body = f"**{issue.severity.upper()}** ({issue.category}): "
+                body += issue.description
+                if issue.suggestion:
+                    body += f"\n\n*Suggestion: {issue.suggestion}*"
+
+                inline_comments.append(InlineComment(
+                    file=issue.file,
+                    start_line=start_line,
+                    end_line=end_line,
+                    body=body,
+                    suggestion=code_suggestion,
+                ))
 
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
@@ -179,6 +224,7 @@ Please review this PR and provide your feedback in the JSON format specified."""
 
         return LLMReviewResult(
             issues=issues,
+            inline_comments=inline_comments,
             summary=data.get("summary", ""),
             strengths=data.get("strengths", []),
             concerns=data.get("concerns", []),
