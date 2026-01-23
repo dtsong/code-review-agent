@@ -42,6 +42,20 @@ export interface DailySummary {
   escalations: number
 }
 
+export interface CostByRepo {
+  repo_owner: string
+  repo_name: string
+  total_cost: number
+  review_count: number
+}
+
+export interface CostByModel {
+  model_used: string
+  total_cost: number
+  total_tokens: number
+  review_count: number
+}
+
 export interface EscalatedReview {
   id: string
   created_at: string

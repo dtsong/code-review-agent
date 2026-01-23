@@ -77,19 +77,34 @@ export default function Dashboard() {
           <h1 style={{ margin: 0 }}>PR Review Dashboard</h1>
           <p style={{ color: '#666', margin: '4px 0 0' }}>AI-powered code review metrics</p>
         </div>
-        <a
-          href="/queue"
-          style={{
-            padding: '8px 16px',
-            background: '#0366d6',
-            color: 'white',
-            borderRadius: 6,
-            textDecoration: 'none',
-            fontSize: 14,
-          }}
-        >
-          Review Queue →
-        </a>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a
+            href="/costs"
+            style={{
+              padding: '8px 16px',
+              background: '#5319e7',
+              color: 'white',
+              borderRadius: 6,
+              textDecoration: 'none',
+              fontSize: 14,
+            }}
+          >
+            Costs →
+          </a>
+          <a
+            href="/queue"
+            style={{
+              padding: '8px 16px',
+              background: '#0366d6',
+              color: 'white',
+              borderRadius: 6,
+              textDecoration: 'none',
+              fontSize: 14,
+            }}
+          >
+            Review Queue →
+          </a>
+        </div>
       </div>
 
       {/* Summary Cards */}
