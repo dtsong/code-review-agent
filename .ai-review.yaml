@@ -45,6 +45,13 @@ escalation:
   trigger_below_confidence: 0.5
   slack_format: true
 
+budget:
+  enabled: false
+  monthly_limit_usd: 500
+  alert_at: [0.8, 1.0]
+  pause_on_exceed: false
+  webhook_url: ${BUDGET_ALERT_WEBHOOK_URL}
+
 llm:
   provider: anthropic
   default_model: claude-sonnet-4-20250514
