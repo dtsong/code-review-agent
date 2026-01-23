@@ -46,6 +46,28 @@ class LLMConfig:
 
 
 @dataclass
+class CoverageConfig:
+    """Coverage gate configuration."""
+
+    enabled: bool = True
+    min_coverage: float = 80.0
+    fail_on_decrease: bool = True
+    report_path: str = "coverage.xml"
+
+
+@dataclass
+class DependencyConfig:
+    """Dependency audit gate configuration."""
+
+    enabled: bool = True
+    block_vulnerable: bool = True
+    block_deprecated: bool = False
+    allowed_licenses: list[str] = field(
+        default_factory=lambda: ["MIT", "Apache-2.0", "BSD-3-Clause"]
+    )
+
+
+@dataclass
 class ConfidenceConfig:
     """Confidence threshold configuration."""
 
@@ -61,8 +83,11 @@ class Config:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     linting: LintingConfig = field(default_factory=LintingConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    coverage: CoverageConfig = field(default_factory=CoverageConfig)
+    dependencies: DependencyConfig = field(default_factory=DependencyConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     confidence: ConfidenceConfig = field(default_factory=ConfidenceConfig)
+    file_routing: dict | None = None
     ignore: list[str] = field(default_factory=list)
     review_focus: list[str] = field(default_factory=list)
 
@@ -98,8 +123,23 @@ def load_config(path: Path) -> Config:
             if k in LLMConfig.__dataclass_fields__
         })
 
+    if "coverage" in data:
+        config.coverage = CoverageConfig(**{
+            k: v for k, v in data["coverage"].items()
+            if k in CoverageConfig.__dataclass_fields__
+        })
+
+    if "dependencies" in data:
+        config.dependencies = DependencyConfig(**{
+            k: v for k, v in data["dependencies"].items()
+            if k in DependencyConfig.__dataclass_fields__
+        })
+
     if "confidence" in data:
         config.confidence = ConfidenceConfig(**data["confidence"])
+
+    if "file_routing" in data:
+        config.file_routing = data["file_routing"]
 
     if "ignore" in data:
         config.ignore = data["ignore"]

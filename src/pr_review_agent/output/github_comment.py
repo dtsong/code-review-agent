@@ -1,7 +1,7 @@
 """GitHub comment formatting and posting."""
 
 from pr_review_agent.review.confidence import ConfidenceResult
-from pr_review_agent.review.llm_reviewer import LLMReviewResult
+from pr_review_agent.review.llm_reviewer import InlineComment, LLMReviewResult
 
 
 def format_as_markdown(
@@ -77,3 +77,30 @@ def format_as_markdown(
     lines.append(f"Tokens: {review.input_tokens} in / {review.output_tokens} out</sub>")
 
     return "\n".join(lines)
+
+
+def build_review_comments(
+    inline_comments: list[InlineComment],
+) -> list[dict]:
+    """Convert InlineComment objects to GitHub Review API comment format.
+
+    Returns list of dicts with keys: path, line, body, start_line (optional).
+    """
+    comments = []
+    for ic in inline_comments:
+        body = ic.body
+        # Add code suggestion block if present
+        if ic.suggestion:
+            body += f"\n\n```suggestion\n{ic.suggestion}\n```"
+
+        comment: dict = {
+            "path": ic.file,
+            "line": ic.end_line or ic.start_line,
+            "body": body,
+        }
+        if ic.end_line and ic.start_line != ic.end_line:
+            comment["start_line"] = ic.start_line
+
+        comments.append(comment)
+
+    return comments

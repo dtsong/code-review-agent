@@ -24,6 +24,21 @@ security:
   fail_on_severity: high
   max_findings: 5
 
+coverage:
+  enabled: true
+  min_coverage: 80
+  fail_on_decrease: true
+  report_path: coverage.xml
+
+dependencies:
+  enabled: true
+  block_vulnerable: true
+  block_deprecated: false
+  allowed_licenses:
+    - MIT
+    - Apache-2.0
+    - BSD-3-Clause
+
 llm:
   provider: anthropic
   default_model: claude-sonnet-4-20250514
