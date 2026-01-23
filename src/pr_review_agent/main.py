@@ -17,6 +17,7 @@ from pr_review_agent.analysis.pre_analyzer import analyze_pr
 from pr_review_agent.config import load_config
 from pr_review_agent.execution.retry_handler import retry_with_adaptation, RetryStrategy
 from pr_review_agent.gates.lint_gate import run_lint
+from pr_review_agent.gates.security_gate import run_security_scan
 from pr_review_agent.gates.size_gate import check_size
 from pr_review_agent.github_client import GitHubClient
 from pr_review_agent.metrics.supabase_logger import SupabaseLogger
@@ -58,6 +59,7 @@ def run_review(
         "repo": repo,
         "size_gate_passed": False,
         "lint_gate_passed": False,
+        "security_gate_passed": False,
         "llm_called": False,
         "confidence_score": 0.0,
         "comment_posted": False,
@@ -92,6 +94,15 @@ def run_review(
 
     if not lint_result.passed:
         print_results(pr, size_result, lint_result, None, None)
+        result["duration_ms"] = int((time.time() - start_time) * 1000)
+        return result
+
+    # Gate 3: Security scan
+    security_result = run_security_scan(files_to_lint, config)
+    result["security_gate_passed"] = security_result.passed
+
+    if not security_result.passed:
+        print(f"\n🔒 Security gate failed: {security_result.recommendation}")
         result["duration_ms"] = int((time.time() - start_time) * 1000)
         return result
 

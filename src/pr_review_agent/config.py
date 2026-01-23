@@ -25,6 +25,16 @@ class LintingConfig:
 
 
 @dataclass
+class SecurityConfig:
+    """Security scanning configuration."""
+
+    enabled: bool = True
+    tool: str = "bandit"
+    fail_on_severity: str = "high"  # critical, high, medium, low
+    max_findings: int = 5
+
+
+@dataclass
 class LLMConfig:
     """LLM configuration."""
 
@@ -50,6 +60,7 @@ class Config:
     version: int = 1
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     linting: LintingConfig = field(default_factory=LintingConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     confidence: ConfidenceConfig = field(default_factory=ConfidenceConfig)
     ignore: list[str] = field(default_factory=list)
@@ -73,6 +84,12 @@ def load_config(path: Path) -> Config:
         config.linting = LintingConfig(**{
             k: v for k, v in data["linting"].items()
             if k in LintingConfig.__dataclass_fields__
+        })
+
+    if "security" in data:
+        config.security = SecurityConfig(**{
+            k: v for k, v in data["security"].items()
+            if k in SecurityConfig.__dataclass_fields__
         })
 
     if "llm" in data:
