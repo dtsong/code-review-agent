@@ -15,6 +15,7 @@ from typing import Any
 
 from pr_review_agent.analysis.pre_analyzer import analyze_pr
 from pr_review_agent.config import load_config
+from pr_review_agent.escalation.webhook import build_payload, send_webhook, should_escalate
 from pr_review_agent.execution.retry_handler import retry_with_adaptation, RetryStrategy
 from pr_review_agent.gates.lint_gate import run_lint
 from pr_review_agent.gates.security_gate import run_security_scan
@@ -151,6 +152,14 @@ def run_review(
         result["comment_posted"] = True
         result["comment_url"] = comment_url
         print(f"\nComment posted: {comment_url}")
+
+    # Escalation webhook for low-confidence reviews
+    if should_escalate(confidence, config.escalation):
+        escalation_payload = build_payload(pr, confidence, review_result.summary)
+        webhook_sent = send_webhook(escalation_payload, config.escalation)
+        result["escalation_sent"] = webhook_sent
+        if webhook_sent:
+            print("\n⚠️  Low confidence — escalation webhook sent")
 
     result["duration_ms"] = int((time.time() - start_time) * 1000)
 
