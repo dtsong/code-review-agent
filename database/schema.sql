@@ -51,6 +51,34 @@ CREATE INDEX IF NOT EXISTS idx_review_events_created
 CREATE INDEX IF NOT EXISTS idx_review_events_author
   ON review_events(pr_author);
 
+-- Table: approval_decisions
+-- Stores human decisions on escalated reviews for audit trail
+CREATE TABLE IF NOT EXISTS approval_decisions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+  -- Link to review event
+  review_event_id UUID NOT NULL REFERENCES review_events(id),
+
+  -- Decision details
+  decision TEXT NOT NULL CHECK (decision IN ('approved', 'overridden', 'dismissed')),
+  decided_by TEXT NOT NULL,
+  reason TEXT,
+
+  -- PR context (denormalized for quick access)
+  repo_owner TEXT NOT NULL,
+  repo_name TEXT NOT NULL,
+  pr_number INTEGER NOT NULL,
+  pr_url TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_approval_decisions_review
+  ON approval_decisions(review_event_id);
+CREATE INDEX IF NOT EXISTS idx_approval_decisions_created
+  ON approval_decisions(created_at);
+CREATE INDEX IF NOT EXISTS idx_approval_decisions_decided_by
+  ON approval_decisions(decided_by);
+
 -- View: Daily summary for dashboard
 CREATE OR REPLACE VIEW daily_review_summary AS
 SELECT
