@@ -1,0 +1,17 @@
+## Completed Tasks
+
+### Phase 5.1: Token Usage Tracking
+- Status: ALREADY IMPLEMENTED (pre-existing)
+- Token capture, cost calculation, and Supabase logging already in place
+
+### Phase 1.1: Security Scan Gate
+- Status: DONE
+- Created `src/pr_review_agent/gates/security_gate.py` (bandit integration)
+- Created `tests/test_security_gate.py` (10 tests, all passing)
+- Added `SecurityConfig` to `config.py`
+- Added security gate to pipeline in `main.py` (after lint gate)
+- Added `security:` section to `.ai-review.yaml`
+- Added `bandit>=1.7.0` dependency
+
+## Next Up
+- Phase 2.1: Inline Comment Support

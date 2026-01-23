@@ -18,6 +18,12 @@ linting:
   fail_on_error: true
   fail_threshold: 10
 
+security:
+  enabled: true
+  tool: bandit
+  fail_on_severity: high
+  max_findings: 5
+
 coverage:
   enabled: true
   min_coverage: 80
