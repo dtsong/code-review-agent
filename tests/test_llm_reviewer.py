@@ -22,15 +22,15 @@ def test_review_issue_dataclass():
 
 def test_calculate_cost():
     """Test cost calculation for different models."""
-    reviewer = LLMReviewer.__new__(LLMReviewer)
+    from pr_review_agent.metrics.token_tracker import calculate_cost
 
     # Sonnet pricing
-    cost = reviewer._calculate_cost("claude-sonnet-4-20250514", 1000, 500)
+    cost = calculate_cost("claude-sonnet-4-20250514", 1000, 500)
     expected = (1000 * 0.003 / 1000) + (500 * 0.015 / 1000)
     assert abs(cost - expected) < 0.0001
 
-    # Haiku pricing (using model name from PRICING dict)
-    cost = reviewer._calculate_cost("claude-haiku-4-5-20251001", 1000, 500)
+    # Haiku pricing
+    cost = calculate_cost("claude-haiku-4-5-20251001", 1000, 500)
     expected = (1000 * 0.001 / 1000) + (500 * 0.005 / 1000)
     assert abs(cost - expected) < 0.0001
 
