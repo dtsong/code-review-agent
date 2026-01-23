@@ -76,6 +76,7 @@ class Config:
     dependencies: DependencyConfig = field(default_factory=DependencyConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     confidence: ConfidenceConfig = field(default_factory=ConfidenceConfig)
+    file_routing: dict | None = None
     ignore: list[str] = field(default_factory=list)
     review_focus: list[str] = field(default_factory=list)
 
@@ -119,6 +120,9 @@ def load_config(path: Path) -> Config:
 
     if "confidence" in data:
         config.confidence = ConfidenceConfig(**data["confidence"])
+
+    if "file_routing" in data:
+        config.file_routing = data["file_routing"]
 
     if "ignore" in data:
         config.ignore = data["ignore"]
