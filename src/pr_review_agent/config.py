@@ -78,6 +78,17 @@ class EscalationConfig:
 
 
 @dataclass
+class BudgetConfig:
+    """Budget limits configuration."""
+
+    enabled: bool = False
+    monthly_limit_usd: float = 500.0
+    alert_at: list[float] = field(default_factory=lambda: [0.8, 1.0])
+    pause_on_exceed: bool = False
+    webhook_url: str = ""
+
+
+@dataclass
 class ConfidenceConfig:
     """Confidence threshold configuration."""
 
@@ -97,6 +108,7 @@ class Config:
     dependencies: DependencyConfig = field(default_factory=DependencyConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     escalation: EscalationConfig = field(default_factory=EscalationConfig)
+    budget: BudgetConfig = field(default_factory=BudgetConfig)
     confidence: ConfidenceConfig = field(default_factory=ConfidenceConfig)
     file_routing: dict | None = None
     ignore: list[str] = field(default_factory=list)
@@ -150,6 +162,12 @@ def load_config(path: Path) -> Config:
         config.escalation = EscalationConfig(**{
             k: v for k, v in data["escalation"].items()
             if k in EscalationConfig.__dataclass_fields__
+        })
+
+    if "budget" in data:
+        config.budget = BudgetConfig(**{
+            k: v for k, v in data["budget"].items()
+            if k in BudgetConfig.__dataclass_fields__
         })
 
     if "confidence" in data:
