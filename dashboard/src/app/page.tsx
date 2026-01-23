@@ -72,8 +72,25 @@ export default function Dashboard() {
 
   return (
     <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto' }}>
-      <h1 style={{ marginBottom: 10 }}>PR Review Dashboard</h1>
-      <p style={{ color: '#666', marginBottom: 30 }}>AI-powered code review metrics</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 }}>
+        <div>
+          <h1 style={{ margin: 0 }}>PR Review Dashboard</h1>
+          <p style={{ color: '#666', margin: '4px 0 0' }}>AI-powered code review metrics</p>
+        </div>
+        <a
+          href="/queue"
+          style={{
+            padding: '8px 16px',
+            background: '#0366d6',
+            color: 'white',
+            borderRadius: 6,
+            textDecoration: 'none',
+            fontSize: 14,
+          }}
+        >
+          Review Queue →
+        </a>
+      </div>
 
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 30 }}>
