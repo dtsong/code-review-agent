@@ -39,6 +39,12 @@ dependencies:
     - Apache-2.0
     - BSD-3-Clause
 
+escalation:
+  enabled: false
+  webhook_url: ${ESCALATION_WEBHOOK_URL}
+  trigger_below_confidence: 0.5
+  slack_format: true
+
 llm:
   provider: anthropic
   default_model: claude-sonnet-4-20250514

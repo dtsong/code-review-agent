@@ -68,6 +68,16 @@ class DependencyConfig:
 
 
 @dataclass
+class EscalationConfig:
+    """Escalation webhook configuration."""
+
+    enabled: bool = False
+    webhook_url: str = ""
+    trigger_below_confidence: float = 0.5
+    slack_format: bool = True
+
+
+@dataclass
 class ConfidenceConfig:
     """Confidence threshold configuration."""
 
@@ -86,6 +96,7 @@ class Config:
     coverage: CoverageConfig = field(default_factory=CoverageConfig)
     dependencies: DependencyConfig = field(default_factory=DependencyConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    escalation: EscalationConfig = field(default_factory=EscalationConfig)
     confidence: ConfidenceConfig = field(default_factory=ConfidenceConfig)
     file_routing: dict | None = None
     ignore: list[str] = field(default_factory=list)
@@ -133,6 +144,12 @@ def load_config(path: Path) -> Config:
         config.dependencies = DependencyConfig(**{
             k: v for k, v in data["dependencies"].items()
             if k in DependencyConfig.__dataclass_fields__
+        })
+
+    if "escalation" in data:
+        config.escalation = EscalationConfig(**{
+            k: v for k, v in data["escalation"].items()
+            if k in EscalationConfig.__dataclass_fields__
         })
 
     if "confidence" in data:
