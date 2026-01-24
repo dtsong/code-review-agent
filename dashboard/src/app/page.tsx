@@ -79,6 +79,19 @@ export default function Dashboard() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <a
+            href="/evals"
+            style={{
+              padding: '8px 16px',
+              background: '#28a745',
+              color: 'white',
+              borderRadius: 6,
+              textDecoration: 'none',
+              fontSize: 14,
+            }}
+          >
+            Evals →
+          </a>
+          <a
             href="/costs"
             style={{
               padding: '8px 16px',

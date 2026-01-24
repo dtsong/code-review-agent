@@ -70,3 +70,29 @@ export interface EscalatedReview {
   outcome: string
   review_duration_ms: number
 }
+
+export interface EvalRun {
+  id: string
+  created_at: string
+  eval_suite: string
+  model_used: string
+  precision: number
+  recall: number
+  f1_score: number
+  total_cases: number
+  true_positives: number
+  false_positives: number
+  false_negatives: number
+  avg_confidence: number
+  avg_cost_usd: number
+  total_duration_ms: number
+}
+
+export interface EvalIssueBreakdown {
+  category: string
+  true_positives: number
+  false_positives: number
+  false_negatives: number
+  precision: number
+  recall: number
+}
