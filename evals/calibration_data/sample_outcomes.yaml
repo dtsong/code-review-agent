@@ -1,0 +1,46 @@
+# Sample calibration data for confidence score tuning.
+# Each entry maps a review's predicted confidence to the human-verified outcome.
+#
+# outcome values: correct, incorrect, partial
+#   correct   - review findings were accurate and actionable
+#   incorrect - review missed critical issues or raised false positives
+#   partial   - some findings correct, others missed or wrong
+
+- review_id: sample-001
+  predicted_confidence: 0.92
+  outcome: correct
+  issue_count: 1
+  severity_breakdown:
+    minor: 1
+
+- review_id: sample-002
+  predicted_confidence: 0.85
+  outcome: correct
+  issue_count: 2
+  severity_breakdown:
+    major: 1
+    minor: 1
+
+- review_id: sample-003
+  predicted_confidence: 0.78
+  outcome: partial
+  issue_count: 3
+  severity_breakdown:
+    major: 1
+    minor: 2
+
+- review_id: sample-004
+  predicted_confidence: 0.65
+  outcome: incorrect
+  issue_count: 2
+  severity_breakdown:
+    critical: 1
+    minor: 1
+
+- review_id: sample-005
+  predicted_confidence: 0.45
+  outcome: correct
+  issue_count: 4
+  severity_breakdown:
+    major: 2
+    minor: 2
