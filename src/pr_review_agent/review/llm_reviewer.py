@@ -8,6 +8,7 @@ from anthropic import Anthropic
 from pr_review_agent.config import Config
 from pr_review_agent.metrics.token_tracker import calculate_cost
 from pr_review_agent.review.fingerprint import fingerprint_issue
+from pr_review_agent.review.sanitizer import sanitize_diff
 
 REVIEW_SYSTEM_PROMPT = """\
 You are an expert code reviewer. Review the PR diff and provide actionable feedback.
@@ -172,12 +173,19 @@ class LLMReviewer:
         focus_areas: list[str] | None = None,
     ) -> LLMReviewResult:
         """Review the PR diff using Claude."""
+        # Sanitize diff to neutralize prompt injection attempts
+        sanitization = sanitize_diff(diff)
+        if not sanitization.is_clean:
+            patterns = [a.pattern_type for a in sanitization.attempts_detected]
+            print(f"   ⚠ Injection attempts detected and sanitized: {patterns}")
+        safe_diff = sanitization.sanitized_diff
+
         user_prompt = f"""## PR Description
 {pr_description}
 
 ## Diff
 ```diff
-{diff}
+{safe_diff}
 ```
 
 Please review this PR and provide your feedback in the JSON format specified."""
