@@ -1,7 +1,14 @@
 """GitHub comment formatting and posting."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from pr_review_agent.review.confidence import ConfidenceResult
 from pr_review_agent.review.llm_reviewer import InlineComment, LLMReviewResult
+
+if TYPE_CHECKING:
+    from pr_review_agent.execution.degradation import DegradationResult
 
 
 def format_as_markdown(
@@ -104,3 +111,108 @@ def build_review_comments(
         comments.append(comment)
 
     return comments
+
+
+_LEVEL_LABELS = {
+    "full": "Full Review",
+    "reduced": "Reduced Review (Fallback Model)",
+    "gates_only": "Gates Only (LLM Unavailable)",
+    "minimal": "Minimal (Infrastructure Error)",
+}
+
+
+def format_degraded_review(result: DegradationResult) -> str:
+    """Format a degraded review result as GitHub-flavored markdown.
+
+    Handles all degradation levels with appropriate formatting.
+    """
+    from pr_review_agent.execution.degradation import DegradationLevel
+
+    lines = []
+    level_label = _LEVEL_LABELS.get(result.level.value, result.level.value)
+
+    if result.level == DegradationLevel.FULL and result.review_result:
+        # Full review - standard format with confidence placeholder
+        lines.append("## AI Code Review")
+        lines.append("")
+        lines.append("### Summary")
+        lines.append(result.review_result.summary)
+        lines.append("")
+
+        if result.review_result.strengths:
+            lines.append("### Strengths")
+            for s in result.review_result.strengths:
+                lines.append(f"- {s}")
+            lines.append("")
+
+        if result.review_result.issues:
+            lines.append("### Issues Found")
+            for issue in result.review_result.issues:
+                lines.append(f"- **{issue.severity}**: {issue.description}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append(
+            f"<sub>Model: `{result.review_result.model}` | "
+            f"Cost: ${result.review_result.cost_usd:.4f}</sub>"
+        )
+
+    elif result.level == DegradationLevel.REDUCED and result.review_result:
+        # Reduced review - show with degradation notice
+        lines.append("## AI Code Review")
+        lines.append("")
+        lines.append(f"> **Note:** {level_label} - primary model was unavailable.")
+        lines.append("")
+        lines.append("### Summary")
+        lines.append(result.review_result.summary)
+        lines.append("")
+
+        if result.review_result.issues:
+            lines.append("### Issues Found")
+            for issue in result.review_result.issues:
+                lines.append(f"- **{issue.severity}**: {issue.description}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append(
+            f"<sub>Model: `{result.review_result.model}` (fallback) | "
+            f"Cost: ${result.review_result.cost_usd:.4f}</sub>"
+        )
+
+    elif result.level == DegradationLevel.GATES_ONLY:
+        # Gates-only - show what deterministic checks found
+        lines.append("## AI Code Review - Gates Only")
+        lines.append("")
+        lines.append(f"> **{level_label}**")
+        if result.error_message:
+            lines.append(f"> {result.error_message}")
+        lines.append("")
+
+        if result.gate_results:
+            lines.append("### Gate Results")
+            for gate_name, gate_result in result.gate_results.items():
+                status = "PASS" if getattr(gate_result, 'passed', False) else "FAIL"
+                message = getattr(gate_result, 'message', '')
+                lines.append(f"- **{gate_name}**: {status} {message}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append("<sub>LLM review was unavailable. Only deterministic gates ran.</sub>")
+
+    else:
+        # Minimal - just show error
+        lines.append("## AI Code Review - Service Unavailable")
+        lines.append("")
+        lines.append(
+            f"> **{level_label}**"
+        )
+        if result.error_message:
+            lines.append(f"> {result.error_message}")
+        lines.append("")
+        lines.append("The review service encountered an infrastructure issue. ")
+        lines.append("Please retry or request a manual review.")
+        lines.append("")
+        lines.append("---")
+        lines.append("<sub>No review data available.</sub>")
+
+    return "\n".join(lines)

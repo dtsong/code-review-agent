@@ -1,7 +1,3 @@
-from dotenv import load_dotenv
-
-load_dotenv()
-
 """CLI entrypoint for PR Review Agent."""
 
 import argparse
@@ -16,7 +12,7 @@ from typing import Any
 from pr_review_agent.analysis.pre_analyzer import analyze_pr
 from pr_review_agent.config import load_config
 from pr_review_agent.escalation.webhook import build_payload, send_webhook, should_escalate
-from pr_review_agent.execution.retry_handler import retry_with_adaptation, RetryStrategy
+from pr_review_agent.execution.degradation import DegradationLevel, DegradedReviewPipeline
 from pr_review_agent.gates.lint_gate import run_lint
 from pr_review_agent.gates.security_gate import run_security_scan
 from pr_review_agent.gates.size_gate import check_size
@@ -25,7 +21,6 @@ from pr_review_agent.metrics.supabase_logger import SupabaseLogger
 from pr_review_agent.output.console import print_results
 from pr_review_agent.output.github_comment import format_as_markdown
 from pr_review_agent.review.confidence import calculate_confidence
-from pr_review_agent.review.llm_reviewer import LLMReviewer, LLMReviewResult
 
 
 def run_review(
@@ -107,54 +102,59 @@ def run_review(
         result["duration_ms"] = int((time.time() - start_time) * 1000)
         return result
 
-    # All gates passed - run LLM review with adaptive retry
-    llm_reviewer = LLMReviewer(anthropic_key)
-
-    # Use the model suggested by pre-analysis
+    # All gates passed - run LLM review with degradation support
     base_model = analysis.suggested_model
 
-    def do_review(strategy: RetryStrategy) -> LLMReviewResult:
-        """Execute review with the given strategy."""
-        print(f"   Attempt with {strategy.model}...")
-        return llm_reviewer.review(
-            diff=pr.diff,
-            pr_description=pr.description,
-            model=strategy.model,
-            config=config,
-            focus_areas=analysis.focus_areas,
-        )
-
-    def validate_review(review: LLMReviewResult) -> bool:
-        """Validate the review has meaningful content."""
-        return review is not None and len(review.summary) > 20
-
-    print("🤖 Running LLM Review...")
-    review_result = retry_with_adaptation(
-        operation=do_review,
+    print("🤖 Running LLM Review (with graceful degradation)...")
+    pipeline = DegradedReviewPipeline(
+        anthropic_key=anthropic_key,
+        diff=pr.diff,
+        pr_description=pr.description,
+        config=config,
+        focus_areas=analysis.focus_areas,
         base_model=base_model,
-        max_attempts=3,
-        validator=validate_review,
+        gate_results={"size": size_result, "lint": lint_result, "security": security_result},
     )
-    print(f"   ✓ Review complete (confidence check pending)")
-    result["llm_called"] = True
+    degradation_result = pipeline.execute()
+    review_result = degradation_result.review_result
+    result["degradation_level"] = degradation_result.level.value
 
-    # Calculate confidence
-    confidence = calculate_confidence(review_result, pr, config)
-    result["confidence_score"] = confidence.score
+    if degradation_result.level == DegradationLevel.FULL:
+        print("   ✓ Full review complete")
+    elif degradation_result.level == DegradationLevel.REDUCED:
+        print("   ⚠ Reduced review (fallback model)")
+    elif degradation_result.level == DegradationLevel.GATES_ONLY:
+        print("   ⚠ Gates-only mode (LLM unavailable)")
+    else:
+        print("   ✗ Minimal mode (infrastructure error)")
+
+    result["llm_called"] = review_result is not None
+
+    # Calculate confidence (only if we have a review result)
+    confidence = None
+    if review_result:
+        confidence = calculate_confidence(review_result, pr, config)
+        result["confidence_score"] = confidence.score
 
     # Output results
     print_results(pr, size_result, lint_result, review_result, confidence)
 
-    # Post comment to GitHub if requested
-    if post_comment and review_result:
-        comment_body = format_as_markdown(review_result, confidence)
+    # Post comment to GitHub if requested (always post something in degraded mode)
+    if post_comment:
+        from pr_review_agent.output.github_comment import format_degraded_review
+
+        if review_result and confidence:
+            comment_body = format_as_markdown(review_result, confidence)
+        else:
+            comment_body = format_degraded_review(degradation_result)
+
         comment_url = github.post_comment(owner, repo_name, pr_number, comment_body)
         result["comment_posted"] = True
         result["comment_url"] = comment_url
         print(f"\nComment posted: {comment_url}")
 
     # Escalation webhook for low-confidence reviews
-    if should_escalate(confidence, config.escalation):
+    if confidence and should_escalate(confidence, config.escalation):
         escalation_payload = build_payload(pr, confidence, review_result.summary)
         webhook_sent = send_webhook(escalation_payload, config.escalation)
         result["escalation_sent"] = webhook_sent
@@ -195,6 +195,9 @@ def _match_pattern(filename: str, pattern: str) -> bool:
 
 def main() -> int:
     """Main entry point."""
+    from dotenv import load_dotenv
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         description="AI-powered PR review agent",
         prog="pr-review-agent",

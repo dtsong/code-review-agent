@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+from pr_review_agent.execution.degradation import DegradationLevel, DegradationResult
 from pr_review_agent.main import main, run_review
 
 
@@ -35,9 +36,8 @@ def test_run_review_size_gate_fails():
     assert result["llm_called"] is False
 
 
-@patch("pr_review_agent.main.retry_with_adaptation")
-@patch("pr_review_agent.main.LLMReviewer")
-def test_run_review_full_flow(mock_llm_class, mock_retry):
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_full_flow(mock_pipeline_class):
     """Full review flow with passing gates."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -67,12 +67,14 @@ def test_run_review_full_flow(mock_llm_class, mock_retry):
     mock_review.model = "claude-sonnet-4-20250514"
     mock_review.cost_usd = 0.001
 
-    mock_reviewer = MagicMock()
-    mock_reviewer.review.return_value = mock_review
-    mock_llm_class.return_value = mock_reviewer
-
-    # Mock retry_with_adaptation to return the review directly
-    mock_retry.return_value = mock_review
+    # Mock the degradation pipeline to return full review
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
 
     result = run_review(
         repo="test/repo",
@@ -87,9 +89,8 @@ def test_run_review_full_flow(mock_llm_class, mock_retry):
     assert result["confidence_score"] > 0
 
 
-@patch("pr_review_agent.main.retry_with_adaptation")
-@patch("pr_review_agent.main.LLMReviewer")
-def test_run_review_posts_comment(mock_llm_class, mock_retry):
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_posts_comment(mock_pipeline_class):
     """Review should post comment when post_comment=True."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -120,12 +121,13 @@ def test_run_review_posts_comment(mock_llm_class, mock_retry):
     mock_review.model = "claude-sonnet-4-20250514"
     mock_review.cost_usd = 0.001
 
-    mock_reviewer = MagicMock()
-    mock_reviewer.review.return_value = mock_review
-    mock_llm_class.return_value = mock_reviewer
-
-    # Mock retry_with_adaptation to return the review directly
-    mock_retry.return_value = mock_review
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
 
     result = run_review(
         repo="test/repo",
@@ -143,10 +145,8 @@ def test_run_review_posts_comment(mock_llm_class, mock_retry):
 # --- Security gate test ---
 
 
-@patch("pr_review_agent.main.retry_with_adaptation")
-@patch("pr_review_agent.main.LLMReviewer")
 @patch("pr_review_agent.main.run_security_scan")
-def test_run_review_security_gate_fails(mock_security, mock_llm_class, mock_retry):
+def test_run_review_security_gate_fails(mock_security):
     """Security gate failure stops review before LLM."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -177,7 +177,6 @@ def test_run_review_security_gate_fails(mock_security, mock_llm_class, mock_retr
 
     assert result["security_gate_passed"] is False
     assert result["llm_called"] is False
-    mock_retry.assert_not_called()
 
 
 # --- Lint gate failure test ---
@@ -221,9 +220,8 @@ def test_run_review_lint_gate_fails():
 
 @patch("pr_review_agent.main.send_webhook")
 @patch("pr_review_agent.main.should_escalate")
-@patch("pr_review_agent.main.retry_with_adaptation")
-@patch("pr_review_agent.main.LLMReviewer")
-def test_run_review_escalation_triggered(mock_llm_class, mock_retry, mock_escalate, mock_webhook):
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_escalation_triggered(mock_pipeline_class, mock_escalate, mock_webhook):
     """Low confidence triggers escalation webhook."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -247,7 +245,14 @@ def test_run_review_escalation_triggered(mock_llm_class, mock_retry, mock_escala
     mock_review.issues = []
     mock_review.model = "claude-sonnet-4-20250514"
     mock_review.cost_usd = 0.001
-    mock_retry.return_value = mock_review
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
 
     mock_escalate.return_value = True
     mock_webhook.return_value = True
@@ -268,9 +273,8 @@ def test_run_review_escalation_triggered(mock_llm_class, mock_retry, mock_escala
 
 
 @patch("pr_review_agent.main.SupabaseLogger")
-@patch("pr_review_agent.main.retry_with_adaptation")
-@patch("pr_review_agent.main.LLMReviewer")
-def test_run_review_metrics_logged(mock_llm_class, mock_retry, mock_logger_class):
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_metrics_logged(mock_pipeline_class, mock_logger_class):
     """Metrics logged to Supabase when configured."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -294,7 +298,14 @@ def test_run_review_metrics_logged(mock_llm_class, mock_retry, mock_logger_class
     mock_review.issues = []
     mock_review.model = "claude-sonnet-4-20250514"
     mock_review.cost_usd = 0.001
-    mock_retry.return_value = mock_review
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
 
     result = run_review(
         repo="test/repo",
@@ -311,9 +322,8 @@ def test_run_review_metrics_logged(mock_llm_class, mock_retry, mock_logger_class
 
 
 @patch("pr_review_agent.main.SupabaseLogger")
-@patch("pr_review_agent.main.retry_with_adaptation")
-@patch("pr_review_agent.main.LLMReviewer")
-def test_run_review_metrics_failure(mock_llm_class, mock_retry, mock_logger_class):
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_metrics_failure(mock_pipeline_class, mock_logger_class):
     """Metrics failure sets metrics_logged=False without raising."""
     mock_pr = MagicMock()
     mock_pr.owner = "test"
@@ -337,7 +347,14 @@ def test_run_review_metrics_failure(mock_llm_class, mock_retry, mock_logger_clas
     mock_review.issues = []
     mock_review.model = "claude-sonnet-4-20250514"
     mock_review.cost_usd = 0.001
-    mock_retry.return_value = mock_review
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
 
     mock_logger_class.side_effect = Exception("connection failed")
 
