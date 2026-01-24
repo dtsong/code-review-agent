@@ -1,0 +1,15 @@
+name: "Missing Error Handling"
+diff_file: "missing_error_handling.patch"
+pr_description: "Simplify payment processing by removing unnecessary try-catch blocks"
+focus_areas:
+  - "reliability"
+  - "error_handling"
+
+expected_issues:
+  - severity: "medium"
+    category: "reliability"
+    file: "src/services/payment.py"
+    line_range: [21, 25]
+    description_contains: "error handling"
+
+expected_confidence: [0.6, 0.9]  # Medium to high confidence

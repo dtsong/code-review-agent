@@ -1,0 +1,15 @@
+name: "SQL Injection Vulnerability"
+diff_file: "sql_injection.patch"
+pr_description: "Update database query to use string formatting for better performance"
+focus_areas:
+  - "security"
+  - "database"
+
+expected_issues:
+  - severity: "high"
+    category: "security"
+    file: "src/api/users.py"
+    line_range: [18, 18]
+    description_contains: "sql injection"
+
+expected_confidence: [0.8, 1.0]  # High confidence expected for obvious security issue
