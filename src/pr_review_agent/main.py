@@ -1,7 +1,3 @@
-from dotenv import load_dotenv
-
-load_dotenv()
-
 """CLI entrypoint for PR Review Agent."""
 
 import argparse
@@ -16,7 +12,7 @@ from typing import Any
 from pr_review_agent.analysis.pre_analyzer import analyze_pr
 from pr_review_agent.config import load_config
 from pr_review_agent.escalation.webhook import build_payload, send_webhook, should_escalate
-from pr_review_agent.execution.retry_handler import retry_with_adaptation, RetryStrategy
+from pr_review_agent.execution.retry_handler import RetryStrategy, retry_with_adaptation
 from pr_review_agent.gates.lint_gate import run_lint
 from pr_review_agent.gates.security_gate import run_security_scan
 from pr_review_agent.gates.size_gate import check_size
@@ -135,7 +131,7 @@ def run_review(
         max_attempts=3,
         validator=validate_review,
     )
-    print(f"   ✓ Review complete (confidence check pending)")
+    print("   ✓ Review complete (confidence check pending)")
     result["llm_called"] = True
 
     # Calculate confidence
@@ -195,16 +191,33 @@ def _match_pattern(filename: str, pattern: str) -> bool:
 
 def main() -> int:
     """Main entry point."""
+    from dotenv import load_dotenv
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         description="AI-powered PR review agent",
         prog="pr-review-agent",
     )
-    parser.add_argument("--repo", required=True, help="GitHub repo (owner/repo)")
-    parser.add_argument("--pr", required=True, type=int, help="PR number")
+    parser.add_argument("--repo", help="GitHub repo (owner/repo)")
+    parser.add_argument("--pr", type=int, help="PR number")
     parser.add_argument("--config", default=".ai-review.yaml", help="Config file path")
     parser.add_argument("--post-comment", action="store_true", help="Post comment to GitHub")
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Run in evaluation mode (redirects to eval runner)"
+    )
 
     args = parser.parse_args()
+
+    # Handle evaluation mode
+    if args.eval:
+        print("Evaluation mode enabled - use 'uv run pr-review-eval --suite evals/cases/' instead")
+        return 1
+
+    # Validate required arguments for normal mode
+    if not args.repo or not args.pr:
+        parser.error("--repo and --pr are required for normal operation")
 
     # Get credentials from environment
     github_token = os.environ.get("GITHUB_TOKEN")
