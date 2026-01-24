@@ -63,6 +63,7 @@ class SupabaseLogger:
                         "file": i.file,
                         "line": i.line,
                         "description": i.description,
+                        "fingerprint": i.fingerprint,
                     }
                     for i in review_result.issues
                 ]
