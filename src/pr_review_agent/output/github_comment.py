@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pr_review_agent.output.secret_scanner import redact_secrets
 from pr_review_agent.review.confidence import ConfidenceResult
 from pr_review_agent.review.llm_reviewer import InlineComment, LLMReviewResult
 
@@ -83,7 +84,13 @@ def format_as_markdown(
     lines.append(f"<sub>Model: `{review.model}` | Cost: ${review.cost_usd:.4f} | ")
     lines.append(f"Tokens: {review.input_tokens} in / {review.output_tokens} out</sub>")
 
-    return "\n".join(lines)
+    output = "\n".join(lines)
+
+    # Scan and redact any accidentally exposed secrets
+    result = redact_secrets(output)
+    if result.secrets_found > 0:
+        print(f"   ⚠ Redacted {result.secrets_found} secret(s) from review output")
+    return result.redacted_text
 
 
 def build_review_comments(
