@@ -13,6 +13,7 @@ from pr_review_agent.analysis.pre_analyzer import analyze_pr
 from pr_review_agent.config import load_config
 from pr_review_agent.escalation.webhook import build_payload, send_webhook, should_escalate
 from pr_review_agent.execution.degradation import DegradationLevel, DegradedReviewPipeline
+from pr_review_agent.gates.circuit_breaker import GateStatus, run_gate_with_breaker
 from pr_review_agent.gates.lint_gate import run_lint
 from pr_review_agent.gates.security_gate import run_security_scan
 from pr_review_agent.gates.size_gate import check_size
@@ -80,27 +81,41 @@ def run_review(
         result["duration_ms"] = int((time.time() - start_time) * 1000)
         return result
 
-    # Gate 2: Lint check
+    # Gate 2: Lint check (with circuit breaker)
     # Filter files based on ignore patterns
     files_to_lint = [
         f for f in pr.files_changed if not any(_match_pattern(f, p) for p in config.ignore)
     ]
-    lint_result = run_lint(files_to_lint, config)
-    result["lint_gate_passed"] = lint_result.passed
+    lint_breaker = run_gate_with_breaker(
+        lambda: run_lint(files_to_lint, config),
+        timeout=config.circuit_breaker.lint_timeout,
+    )
+    if lint_breaker.status == GateStatus.SKIPPED:
+        print(f"\n⏱️  Lint gate skipped: {lint_breaker.reason}")
+        lint_result = None
+    else:
+        lint_result = lint_breaker.gate_result
+        result["lint_gate_passed"] = lint_result.passed
+        if not lint_result.passed:
+            print_results(pr, size_result, lint_result, None, None)
+            result["duration_ms"] = int((time.time() - start_time) * 1000)
+            return result
 
-    if not lint_result.passed:
-        print_results(pr, size_result, lint_result, None, None)
-        result["duration_ms"] = int((time.time() - start_time) * 1000)
-        return result
-
-    # Gate 3: Security scan
-    security_result = run_security_scan(files_to_lint, config)
-    result["security_gate_passed"] = security_result.passed
-
-    if not security_result.passed:
-        print(f"\n🔒 Security gate failed: {security_result.recommendation}")
-        result["duration_ms"] = int((time.time() - start_time) * 1000)
-        return result
+    # Gate 3: Security scan (with circuit breaker)
+    security_breaker = run_gate_with_breaker(
+        lambda: run_security_scan(files_to_lint, config),
+        timeout=config.circuit_breaker.security_timeout,
+    )
+    if security_breaker.status == GateStatus.SKIPPED:
+        print(f"\n⏱️  Security gate skipped: {security_breaker.reason}")
+        security_result = None
+    else:
+        security_result = security_breaker.gate_result
+        result["security_gate_passed"] = security_result.passed
+        if not security_result.passed:
+            print(f"\n🔒 Security gate failed: {security_result.recommendation}")
+            result["duration_ms"] = int((time.time() - start_time) * 1000)
+            return result
 
     # All gates passed - run LLM review with degradation support
     base_model = analysis.suggested_model
