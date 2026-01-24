@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from pr_review_agent.github_client import GitHubClient, PRData
 
 
@@ -84,3 +86,173 @@ def test_post_comment(mock_github_class):
 
     assert url == "https://github.com/owner/repo/pull/1#issuecomment-123"
     mock_pr.create_issue_comment.assert_called_once_with("Test comment")
+
+
+# --- from_app_credentials tests ---
+
+
+@patch("pr_review_agent.github_client.requests.post")
+@patch("pr_review_agent.github_client.jwt.encode")
+@patch("pr_review_agent.github_client.Github")
+def test_from_app_credentials_success(mock_github_class, mock_jwt, mock_post):
+    """Successful GitHub App authentication returns a client."""
+    mock_jwt.return_value = "fake-jwt-token"
+    mock_post.return_value = MagicMock(
+        status_code=200, ok=True, json=lambda: {"token": "ghs_install_token"}
+    )
+
+    client = GitHubClient.from_app_credentials(
+        app_id="12345",
+        installation_id="67890",
+        private_key="-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+    )
+
+    assert isinstance(client, GitHubClient)
+    mock_jwt.assert_called_once()
+    mock_github_class.assert_called_once_with("ghs_install_token")
+
+
+def test_from_app_credentials_invalid_key():
+    """Invalid PEM key raises ValueError."""
+    with pytest.raises(ValueError, match="Invalid private key format"):
+        GitHubClient.from_app_credentials(
+            app_id="12345",
+            installation_id="67890",
+            private_key="not-a-valid-pem-key",
+        )
+
+
+@patch("pr_review_agent.github_client.jwt.encode")
+def test_from_app_credentials_jwt_failure(mock_jwt):
+    """JWT encoding failure raises ValueError."""
+    mock_jwt.side_effect = Exception("bad key")
+
+    with pytest.raises(ValueError, match="Failed to sign JWT"):
+        GitHubClient.from_app_credentials(
+            app_id="12345",
+            installation_id="67890",
+            private_key="-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        )
+
+
+@patch("pr_review_agent.github_client.requests.post")
+@patch("pr_review_agent.github_client.jwt.encode")
+def test_from_app_credentials_401(mock_jwt, mock_post):
+    """401 response raises ValueError with auth hint."""
+    mock_jwt.return_value = "fake-jwt"
+    mock_post.return_value = MagicMock(status_code=401, ok=False)
+
+    with pytest.raises(ValueError, match="401 Unauthorized"):
+        GitHubClient.from_app_credentials(
+            app_id="12345",
+            installation_id="67890",
+            private_key="-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        )
+
+
+@patch("pr_review_agent.github_client.requests.post")
+@patch("pr_review_agent.github_client.jwt.encode")
+def test_from_app_credentials_404(mock_jwt, mock_post):
+    """404 response raises ValueError with installation hint."""
+    mock_jwt.return_value = "fake-jwt"
+    mock_post.return_value = MagicMock(status_code=404, ok=False)
+
+    with pytest.raises(ValueError, match="Installation not found"):
+        GitHubClient.from_app_credentials(
+            app_id="12345",
+            installation_id="67890",
+            private_key="-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        )
+
+
+@patch("pr_review_agent.github_client.requests.post")
+@patch("pr_review_agent.github_client.jwt.encode")
+def test_from_app_credentials_500(mock_jwt, mock_post):
+    """Generic API error raises ValueError."""
+    mock_jwt.return_value = "fake-jwt"
+    mock_post.return_value = MagicMock(status_code=500, ok=False, text="Internal Server Error")
+
+    with pytest.raises(ValueError, match="GitHub API error"):
+        GitHubClient.from_app_credentials(
+            app_id="12345",
+            installation_id="67890",
+            private_key="-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        )
+
+
+# --- post_review_comments tests ---
+
+
+@patch("pr_review_agent.github_client.Github")
+def test_post_review_comments_success(mock_github_class):
+    """post_review_comments creates a review with inline comments."""
+    mock_review = MagicMock(html_url="https://github.com/o/r/pull/1#pullrequestreview-1")
+    mock_commit = MagicMock()
+    mock_commits = MagicMock()
+    mock_commits.reversed = [mock_commit]
+    mock_pr = MagicMock()
+    mock_pr.get_commits.return_value = mock_commits
+    mock_pr.create_review.return_value = mock_review
+    mock_repo = MagicMock()
+    mock_repo.get_pull.return_value = mock_pr
+    mock_github = MagicMock()
+    mock_github.get_repo.return_value = mock_repo
+    mock_github_class.return_value = mock_github
+
+    client = GitHubClient("fake-token")
+    comments = [{"path": "file.py", "body": "Fix this", "line": 10}]
+    url = client.post_review_comments("owner", "repo", 1, comments, body="Review")
+
+    assert url == "https://github.com/o/r/pull/1#pullrequestreview-1"
+    mock_pr.create_review.assert_called_once()
+    call_kwargs = mock_pr.create_review.call_args[1]
+    assert call_kwargs["event"] == "COMMENT"
+    assert len(call_kwargs["comments"]) == 1
+
+
+@patch("pr_review_agent.github_client.Github")
+def test_post_review_comments_with_start_line(mock_github_class):
+    """Multi-line comment includes start_line when different from line."""
+    mock_review = MagicMock(html_url="https://github.com/o/r/pull/1#review")
+    mock_commit = MagicMock()
+    mock_commits = MagicMock()
+    mock_commits.reversed = [mock_commit]
+    mock_pr = MagicMock()
+    mock_pr.get_commits.return_value = mock_commits
+    mock_pr.create_review.return_value = mock_review
+    mock_repo = MagicMock()
+    mock_repo.get_pull.return_value = mock_pr
+    mock_github = MagicMock()
+    mock_github.get_repo.return_value = mock_repo
+    mock_github_class.return_value = mock_github
+
+    client = GitHubClient("fake-token")
+    comments = [{"path": "file.py", "body": "Fix this", "line": 15, "start_line": 10}]
+    client.post_review_comments("owner", "repo", 1, comments)
+
+    call_kwargs = mock_pr.create_review.call_args[1]
+    assert call_kwargs["comments"][0]["start_line"] == 10
+
+
+@patch("pr_review_agent.github_client.Github")
+def test_post_review_comments_start_line_equals_line(mock_github_class):
+    """start_line omitted when equal to line."""
+    mock_review = MagicMock(html_url="https://github.com/o/r/pull/1#review")
+    mock_commit = MagicMock()
+    mock_commits = MagicMock()
+    mock_commits.reversed = [mock_commit]
+    mock_pr = MagicMock()
+    mock_pr.get_commits.return_value = mock_commits
+    mock_pr.create_review.return_value = mock_review
+    mock_repo = MagicMock()
+    mock_repo.get_pull.return_value = mock_pr
+    mock_github = MagicMock()
+    mock_github.get_repo.return_value = mock_repo
+    mock_github_class.return_value = mock_github
+
+    client = GitHubClient("fake-token")
+    comments = [{"path": "file.py", "body": "Fix this", "line": 10, "start_line": 10}]
+    client.post_review_comments("owner", "repo", 1, comments)
+
+    call_kwargs = mock_pr.create_review.call_args[1]
+    assert "start_line" not in call_kwargs["comments"][0]

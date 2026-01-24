@@ -1,10 +1,13 @@
 """Tests for dependency audit gate."""
 
-from unittest.mock import patch
+import json
+import subprocess
+from unittest.mock import MagicMock, patch
 
 from pr_review_agent.gates.dependency_gate import (
     check_dependencies,
     parse_new_dependencies,
+    run_pip_audit,
 )
 
 PYPROJECT_DIFF = """\
@@ -132,3 +135,100 @@ def test_check_dependencies_vulnerability_not_blocking(mock_audit):
     result = check_dependencies(diff=diff, block_vulnerable=False)
 
     assert result.passed is True
+
+
+# --- parse_new_dependencies edge cases ---
+
+
+def test_parse_new_deps_skips_comments_and_empty():
+    """Comments and empty lines in added content are skipped."""
+    diff = """\
+[project.dependencies]
++    # This is a comment
++
++    "real-package>=1.0.0",
+"""
+    deps = parse_new_dependencies(diff)
+
+    assert "real-package" in deps
+    assert len(deps) == 1
+
+
+def test_parse_new_deps_bare_requirements():
+    """Bare requirements.txt format (no section header) with version specs."""
+    diff = """\
++numpy>=1.24.0
++pandas==2.0.0
++scipy~=1.11
+"""
+    deps = parse_new_dependencies(diff)
+
+    assert "numpy" in deps
+    assert "pandas" in deps
+    assert "scipy" in deps
+
+
+# --- run_pip_audit tests ---
+
+
+@patch("pr_review_agent.gates.dependency_gate.subprocess.run")
+def test_run_pip_audit_with_vulnerabilities(mock_run):
+    """Parses pip-audit JSON output into VulnerableDep list."""
+    audit_output = json.dumps({
+        "dependencies": [
+            {
+                "name": "requests",
+                "version": "2.25.0",
+                "vulns": [
+                    {"id": "CVE-2023-1234", "fix_versions": ["2.31.0"]}
+                ],
+            }
+        ]
+    })
+    mock_run.return_value = MagicMock(stdout=audit_output, returncode=0)
+
+    result = run_pip_audit()
+
+    assert len(result) == 1
+    assert result[0].name == "requests"
+    assert result[0].advisory == "CVE-2023-1234"
+
+
+@patch("pr_review_agent.gates.dependency_gate.subprocess.run")
+def test_run_pip_audit_empty(mock_run):
+    """Empty stdout returns empty list."""
+    mock_run.return_value = MagicMock(stdout="", returncode=0)
+
+    result = run_pip_audit()
+
+    assert result == []
+
+
+@patch("pr_review_agent.gates.dependency_gate.subprocess.run")
+def test_run_pip_audit_invalid_json(mock_run):
+    """Malformed JSON returns empty list."""
+    mock_run.return_value = MagicMock(stdout="not json{{{", returncode=0)
+
+    result = run_pip_audit()
+
+    assert result == []
+
+
+@patch("pr_review_agent.gates.dependency_gate.subprocess.run")
+def test_run_pip_audit_not_installed(mock_run):
+    """FileNotFoundError (pip-audit not installed) returns empty list."""
+    mock_run.side_effect = FileNotFoundError("pip-audit not found")
+
+    result = run_pip_audit()
+
+    assert result == []
+
+
+@patch("pr_review_agent.gates.dependency_gate.subprocess.run")
+def test_run_pip_audit_timeout(mock_run):
+    """TimeoutExpired returns empty list."""
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd="pip-audit", timeout=120)
+
+    result = run_pip_audit()
+
+    assert result == []

@@ -1,6 +1,6 @@
 """Tests for console output."""
 
-from pr_review_agent.gates.lint_gate import LintGateResult
+from pr_review_agent.gates.lint_gate import LintGateResult, LintIssue
 from pr_review_agent.gates.size_gate import SizeGateResult
 from pr_review_agent.github_client import PRData
 from pr_review_agent.output.console import format_review_output
@@ -85,3 +85,95 @@ def test_format_output_with_review():
     assert "minor" in output.lower()
     assert "Confidence" in output
     assert "0.85" in output
+
+
+def test_format_output_lint_skipped():
+    """Lint gate shows SKIPPED when lint_result is None."""
+    output = format_review_output(
+        pr=make_pr(),
+        size_result=SizeGateResult(
+            passed=True, reason=None, lines_changed=60, files_changed=1, recommendation=None
+        ),
+        lint_result=None,
+        review_result=None,
+        confidence=None,
+    )
+
+    assert "SKIPPED" in output
+
+
+def test_format_output_lint_failed_with_issues():
+    """Lint gate failure shows error details and issues."""
+    output = format_review_output(
+        pr=make_pr(),
+        size_result=SizeGateResult(
+            passed=True, reason=None, lines_changed=60, files_changed=1, recommendation=None
+        ),
+        lint_result=LintGateResult(
+            passed=False,
+            error_count=3,
+            issues=[
+                LintIssue(file="a.py", line=10, column=1, code="E501", message="Line too long"),
+                LintIssue(file="b.py", line=5, column=3, code="F401", message="Unused import"),
+            ],
+            recommendation="Run ruff --fix",
+        ),
+        review_result=None,
+        confidence=None,
+    )
+
+    assert "FAILED" in output
+    assert "3 linting errors" in output
+    assert "E501" in output
+    assert "Run ruff --fix" in output
+    assert "fix linting errors" in output
+
+
+def test_format_output_with_concerns():
+    """Concerns section rendered when present."""
+    output = format_review_output(
+        pr=make_pr(),
+        size_result=SizeGateResult(
+            passed=True, reason=None, lines_changed=60, files_changed=1, recommendation=None
+        ),
+        lint_result=LintGateResult(passed=True),
+        review_result=LLMReviewResult(
+            summary="Mostly fine",
+            issues=[],
+            concerns=["Performance may degrade under load", "Missing error handling"],
+            input_tokens=100,
+            output_tokens=50,
+            model="claude-sonnet-4-20250514",
+            cost_usd=0.001,
+        ),
+        confidence=None,
+    )
+
+    assert "Concerns" in output
+    assert "Performance may degrade" in output
+    assert "Missing error handling" in output
+
+
+def test_format_output_with_questions():
+    """Questions section rendered when present."""
+    output = format_review_output(
+        pr=make_pr(),
+        size_result=SizeGateResult(
+            passed=True, reason=None, lines_changed=60, files_changed=1, recommendation=None
+        ),
+        lint_result=LintGateResult(passed=True),
+        review_result=LLMReviewResult(
+            summary="Needs clarification",
+            issues=[],
+            questions=["Why was this approach chosen?", "Is this backwards compatible?"],
+            input_tokens=100,
+            output_tokens=50,
+            model="claude-sonnet-4-20250514",
+            cost_usd=0.001,
+        ),
+        confidence=None,
+    )
+
+    assert "Questions for Author" in output
+    assert "Why was this approach chosen?" in output
+    assert "Is this backwards compatible?" in output
