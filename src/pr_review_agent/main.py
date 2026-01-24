@@ -19,7 +19,7 @@ from pr_review_agent.gates.size_gate import check_size
 from pr_review_agent.github_client import GitHubClient
 from pr_review_agent.metrics.supabase_logger import SupabaseLogger
 from pr_review_agent.output.console import print_results
-from pr_review_agent.output.github_comment import format_as_markdown
+from pr_review_agent.output.github_comment import format_as_markdown, format_degraded_review
 from pr_review_agent.review.confidence import calculate_confidence
 
 
@@ -141,8 +141,6 @@ def run_review(
 
     # Post comment to GitHub if requested (always post something in degraded mode)
     if post_comment:
-        from pr_review_agent.output.github_comment import format_degraded_review
-
         if review_result and confidence:
             comment_body = format_as_markdown(review_result, confidence)
         else:

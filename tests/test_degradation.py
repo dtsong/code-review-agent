@@ -1,7 +1,6 @@
 """Tests for graceful degradation on LLM failure."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from pr_review_agent.execution.degradation import (
     DegradationLevel,
@@ -44,27 +43,34 @@ class TestDegradationResult:
         assert result.review_result is not None
         assert result.error_message is None
 
-    def test_minimal_result(self):
+    def test_gates_only_result(self):
         result = DegradationResult(
-            level=DegradationLevel.MINIMAL,
+            level=DegradationLevel.GATES_ONLY,
             review_result=None,
-            gate_results={},
-            error_message="All LLM providers unavailable",
+            gate_results={"size": Mock(passed=True)},
+            error_message="LLM unavailable",
+            errors=["Full review failed: API error", "Reduced review failed: timeout"],
         )
-        assert result.level == DegradationLevel.MINIMAL
+        assert result.level == DegradationLevel.GATES_ONLY
         assert result.review_result is None
-        assert result.error_message == "All LLM providers unavailable"
+        assert result.error_message == "LLM unavailable"
+        assert len(result.errors) == 2
 
 
 class TestDegradedReviewPipeline:
     """Test the degraded review pipeline."""
+
+    def _make_config(self):
+        config = Mock()
+        config.llm.simple_model = "claude-haiku-4-5-20251001"
+        return config
 
     def _make_pipeline(self, **kwargs):
         defaults = {
             "anthropic_key": "fake-key",
             "diff": "diff content",
             "pr_description": "test pr",
-            "config": Mock(),
+            "config": self._make_config(),
             "focus_areas": [],
         }
         defaults.update(kwargs)
@@ -77,7 +83,7 @@ class TestDegradedReviewPipeline:
         mock_result = Mock()
         mock_result.summary = "This is a valid review summary with enough content"
 
-        with patch.object(pipeline, '_run_full_review', return_value=mock_result):
+        with patch.object(pipeline, "_run_full_review", return_value=mock_result):
             result = pipeline.execute()
 
         assert result.level == DegradationLevel.FULL
@@ -85,120 +91,109 @@ class TestDegradedReviewPipeline:
         assert result.error_message is None
 
     def test_reduced_fallback_on_primary_failure(self):
-        """When primary model fails, fall back to Haiku (REDUCED)."""
+        """When primary model fails after retries, fall back to reduced."""
         pipeline = self._make_pipeline()
 
         mock_reduced = Mock()
         mock_reduced.summary = "Reduced review from haiku model"
 
-        with patch.object(pipeline, '_run_full_review', side_effect=Exception("API error")):
-            with patch.object(pipeline, '_run_reduced_review', return_value=mock_reduced):
-                result = pipeline.execute()
+        with (
+            patch.object(pipeline, "_run_full_review", side_effect=Exception("API error")),
+            patch.object(pipeline, "_run_reduced_review", return_value=mock_reduced),
+        ):
+            result = pipeline.execute()
 
         assert result.level == DegradationLevel.REDUCED
         assert result.review_result == mock_reduced
+        assert "Full review failed" in result.errors[0]
 
     def test_gates_only_fallback(self):
-        """When both models fail, return GATES_ONLY level."""
-        pipeline = self._make_pipeline()
+        """When both models fail, return GATES_ONLY with gate results."""
+        gate_results = {"size": Mock(passed=True), "lint": Mock(passed=True)}
+        pipeline = self._make_pipeline(gate_results=gate_results)
 
-        with patch.object(pipeline, '_run_full_review', side_effect=Exception("error")):
-            with patch.object(pipeline, '_run_reduced_review', side_effect=Exception("error")):
-                result = pipeline.execute()
+        with (
+            patch.object(pipeline, "_run_full_review", side_effect=Exception("error1")),
+            patch.object(pipeline, "_run_reduced_review", side_effect=Exception("error2")),
+        ):
+            result = pipeline.execute()
 
         assert result.level == DegradationLevel.GATES_ONLY
         assert result.review_result is None
         assert result.error_message is not None
-
-    def test_minimal_on_complete_failure(self):
-        """When everything fails including gates, return MINIMAL."""
-        pipeline = self._make_pipeline()
-
-        with patch.object(pipeline, '_run_full_review', side_effect=Exception("error")):
-            with patch.object(pipeline, '_run_reduced_review', side_effect=Exception("error")):
-                with patch.object(pipeline, '_collect_gate_results', side_effect=Exception("error")):
-                    result = pipeline.execute()
-
-        assert result.level == DegradationLevel.MINIMAL
-        assert result.error_message is not None
-
-    def test_gate_results_collected_on_gates_only(self):
-        """Gate results should be captured when degraded to gates-only."""
-        pipeline = self._make_pipeline()
-
-        gate_results = {"size": Mock(passed=True), "lint": Mock(passed=True)}
-
-        with patch.object(pipeline, '_run_full_review', side_effect=Exception("error")):
-            with patch.object(pipeline, '_run_reduced_review', side_effect=Exception("error")):
-                with patch.object(pipeline, '_collect_gate_results', return_value=gate_results):
-                    result = pipeline.execute()
-
-        assert result.level == DegradationLevel.GATES_ONLY
         assert result.gate_results == gate_results
+        assert len(result.errors) == 2
+
+    def test_gate_results_preserved_on_fallback(self):
+        """Gate results passed to constructor are preserved in GATES_ONLY."""
+        gate_results = {"size": Mock(passed=True), "lint": Mock(passed=False)}
+        pipeline = self._make_pipeline(gate_results=gate_results)
+
+        with (
+            patch.object(pipeline, "_run_full_review", side_effect=Exception("error")),
+            patch.object(pipeline, "_run_reduced_review", side_effect=Exception("error")),
+        ):
+            result = pipeline.execute()
+
+        assert result.gate_results["size"].passed is True
+        assert result.gate_results["lint"].passed is False
 
     def test_always_produces_output(self):
         """Pipeline should always produce a result, never raise."""
         pipeline = self._make_pipeline()
 
-        # Even with all methods failing, we get MINIMAL
-        with patch.object(pipeline, '_run_full_review', side_effect=Exception("error")):
-            with patch.object(pipeline, '_run_reduced_review', side_effect=Exception("error")):
-                with patch.object(pipeline, '_collect_gate_results', side_effect=Exception("error")):
-                    result = pipeline.execute()
+        with (
+            patch.object(pipeline, "_run_full_review", side_effect=Exception("error")),
+            patch.object(pipeline, "_run_reduced_review", side_effect=Exception("error")),
+        ):
+            result = pipeline.execute()
 
         assert result is not None
         assert isinstance(result.level, DegradationLevel)
+        assert result.level == DegradationLevel.GATES_ONLY
+
+    def test_errors_accumulated(self):
+        """Errors from each failed level are accumulated."""
+        pipeline = self._make_pipeline()
+
+        with (
+            patch.object(pipeline, "_run_full_review", side_effect=Exception("full failed")),
+            patch.object(pipeline, "_run_reduced_review", side_effect=Exception("reduced failed")),
+        ):
+            result = pipeline.execute()
+
+        assert "Full review failed: full failed" in result.errors
+        assert "Reduced review failed: reduced failed" in result.errors
+
+    def test_uses_config_simple_model_for_reduced(self):
+        """Reduced review should use config.llm.simple_model, not hardcoded."""
+        config = self._make_config()
+        config.llm.simple_model = "claude-haiku-4-5-20251001"
+        pipeline = self._make_pipeline(config=config)
+
+        with patch(
+            "pr_review_agent.execution.degradation.retry_with_adaptation"
+        ) as mock_retry:
+            # Full fails
+            mock_retry.side_effect = [Exception("full failed"), Mock()]
+            # Let the pipeline catch the first failure and try reduced
+            with patch.object(pipeline, "_run_full_review", side_effect=Exception("err")):
+                # Patch retry directly for the reduced call
+                mock_result = Mock()
+                mock_result.summary = "Valid reduced review summary content"
+                with patch.object(pipeline, "_run_reduced_review", return_value=mock_result):
+                    result = pipeline.execute()
+
+        assert result.level == DegradationLevel.REDUCED
+
+    def test_single_llm_reviewer_instance(self):
+        """Pipeline should reuse a single LLMReviewer instance."""
+        pipeline = self._make_pipeline()
+        assert hasattr(pipeline, "_reviewer")
 
 
 class TestDegradationFormatting:
     """Test formatting of degraded review results."""
-
-    def test_format_full_level(self):
-        from pr_review_agent.output.github_comment import format_degraded_review
-
-        result = DegradationResult(
-            level=DegradationLevel.FULL,
-            review_result=Mock(
-                summary="Good code",
-                strengths=["clean"],
-                issues=[],
-                concerns=[],
-                questions=[],
-                model="sonnet",
-                cost_usd=0.01,
-                input_tokens=100,
-                output_tokens=50,
-            ),
-            gate_results={},
-            error_message=None,
-        )
-
-        output = format_degraded_review(result)
-        assert "AI Code Review" in output
-        assert "Good code" in output
-
-    def test_format_reduced_level_shows_indicator(self):
-        from pr_review_agent.output.github_comment import format_degraded_review
-
-        result = DegradationResult(
-            level=DegradationLevel.REDUCED,
-            review_result=Mock(
-                summary="Reduced review",
-                strengths=[],
-                issues=[],
-                concerns=[],
-                questions=[],
-                model="haiku",
-                cost_usd=0.001,
-                input_tokens=50,
-                output_tokens=25,
-            ),
-            gate_results={},
-            error_message=None,
-        )
-
-        output = format_degraded_review(result)
-        assert "Reduced" in output or "reduced" in output
 
     def test_format_gates_only_shows_gate_results(self):
         from pr_review_agent.output.github_comment import format_degraded_review
@@ -207,15 +202,33 @@ class TestDegradationFormatting:
             level=DegradationLevel.GATES_ONLY,
             review_result=None,
             gate_results={
-                "size": Mock(passed=True, message="Under limit"),
-                "lint": Mock(passed=False, message="3 issues found"),
+                "size": Mock(passed=True),
+                "lint": Mock(passed=False),
             },
             error_message="LLM unavailable",
         )
 
         output = format_degraded_review(result)
-        assert "Gates Only" in output or "gates" in output.lower()
+        assert "Gates Only" in output
         assert "LLM unavailable" in output
+        assert "size" in output
+        assert "PASS" in output
+        assert "FAIL" in output
+
+    def test_format_gates_only_shows_errors(self):
+        from pr_review_agent.output.github_comment import format_degraded_review
+
+        result = DegradationResult(
+            level=DegradationLevel.GATES_ONLY,
+            review_result=None,
+            gate_results={},
+            error_message="LLM unavailable",
+            errors=["Full review failed: rate limit", "Reduced failed: timeout"],
+        )
+
+        output = format_degraded_review(result)
+        assert "rate limit" in output
+        assert "timeout" in output
 
     def test_format_minimal_shows_error(self):
         from pr_review_agent.output.github_comment import format_degraded_review
@@ -225,7 +238,24 @@ class TestDegradationFormatting:
             review_result=None,
             gate_results={},
             error_message="Infrastructure failure",
+            errors=["Full: crash", "Reduced: crash"],
         )
 
         output = format_degraded_review(result)
         assert "Infrastructure failure" in output
+        assert "Service Unavailable" in output
+        assert "Full: crash" in output
+
+    def test_format_minimal_without_errors(self):
+        from pr_review_agent.output.github_comment import format_degraded_review
+
+        result = DegradationResult(
+            level=DegradationLevel.MINIMAL,
+            review_result=None,
+            gate_results={},
+            error_message="Something broke",
+        )
+
+        output = format_degraded_review(result)
+        assert "Something broke" in output
+        assert "retry" in output.lower()

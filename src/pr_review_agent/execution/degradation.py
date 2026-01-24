@@ -1,7 +1,7 @@
 """Graceful degradation for LLM review failures.
 
 Implements a cascading fallback strategy:
-  Full → Reduced (Haiku) → Gates-only → Minimal
+  Full (with retries) → Reduced/Haiku (with retries) → Gates-only → Minimal
 
 Always produces some output, never fails silently.
 """
@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from pr_review_agent.execution.retry_handler import RetryStrategy, retry_with_adaptation
 from pr_review_agent.review.llm_reviewer import LLMReviewer, LLMReviewResult
 
 
@@ -37,8 +38,8 @@ class DegradedReviewPipeline:
     """Review pipeline with graceful degradation on failure.
 
     Cascades through degradation levels:
-    1. Full - primary model review
-    2. Reduced - Haiku fallback
+    1. Full - primary model review (with retry/backoff)
+    2. Reduced - Haiku fallback (with retry/backoff)
     3. Gates-only - only deterministic gate results
     4. Minimal - error notice
     """
@@ -53,7 +54,7 @@ class DegradedReviewPipeline:
         base_model: str = "claude-sonnet-4-20250514",
         gate_results: dict[str, Any] | None = None,
     ):
-        self.anthropic_key = anthropic_key
+        self._reviewer = LLMReviewer(anthropic_key)
         self.diff = diff
         self.pr_description = pr_description
         self.config = config
@@ -67,7 +68,7 @@ class DegradedReviewPipeline:
 
         Always returns a result, never raises exceptions.
         """
-        # Try full review first
+        # Try full review with retry/backoff
         try:
             review = self._run_full_review()
             return DegradationResult(
@@ -79,7 +80,7 @@ class DegradedReviewPipeline:
         except Exception as e:
             self._errors.append(f"Full review failed: {e}")
 
-        # Try reduced review (Haiku fallback)
+        # Try reduced review with retry/backoff (Haiku fallback)
         try:
             review = self._run_reduced_review()
             return DegradationResult(
@@ -92,49 +93,54 @@ class DegradedReviewPipeline:
             self._errors.append(f"Reduced review failed: {e}")
 
         # Fall back to gates-only
-        try:
-            gate_results = self._collect_gate_results()
-            return DegradationResult(
-                level=DegradationLevel.GATES_ONLY,
-                review_result=None,
-                gate_results=gate_results,
-                error_message="LLM review unavailable; showing gate results only",
-                errors=self._errors,
-            )
-        except Exception as e:
-            self._errors.append(f"Gate collection failed: {e}")
-
-        # Minimal - just an error notice
         return DegradationResult(
-            level=DegradationLevel.MINIMAL,
+            level=DegradationLevel.GATES_ONLY,
             review_result=None,
-            gate_results={},
-            error_message="Review infrastructure unavailable. Please retry later.",
+            gate_results=self._gate_results,
+            error_message="LLM review unavailable; showing gate results only",
             errors=self._errors,
         )
 
     def _run_full_review(self) -> LLMReviewResult:
-        """Run full LLM review with the primary model."""
-        reviewer = LLMReviewer(self.anthropic_key)
-        return reviewer.review(
-            diff=self.diff,
-            pr_description=self.pr_description,
-            model=self.base_model,
-            config=self.config,
-            focus_areas=self.focus_areas,
+        """Run full LLM review with retries and strategy adaptation."""
+        def do_review(strategy: RetryStrategy) -> LLMReviewResult:
+            return self._reviewer.review(
+                diff=self.diff,
+                pr_description=self.pr_description,
+                model=strategy.model,
+                config=self.config,
+                focus_areas=self.focus_areas,
+            )
+
+        def validate(result: LLMReviewResult) -> bool:
+            return result is not None and len(result.summary) > 20
+
+        return retry_with_adaptation(
+            operation=do_review,
+            base_model=self.base_model,
+            max_attempts=3,
+            validator=validate,
         )
 
     def _run_reduced_review(self) -> LLMReviewResult:
-        """Run reduced review using Haiku for speed and cost efficiency."""
-        reviewer = LLMReviewer(self.anthropic_key)
-        return reviewer.review(
-            diff=self.diff,
-            pr_description=self.pr_description,
-            model="haiku",
-            config=self.config,
-            focus_areas=self.focus_areas,
-        )
+        """Run reduced review using Haiku with retries."""
+        fallback_model = self.config.llm.simple_model
 
-    def _collect_gate_results(self) -> dict[str, Any]:
-        """Return previously collected gate results."""
-        return self._gate_results
+        def do_review(strategy: RetryStrategy) -> LLMReviewResult:
+            return self._reviewer.review(
+                diff=self.diff,
+                pr_description=self.pr_description,
+                model=strategy.model,
+                config=self.config,
+                focus_areas=self.focus_areas,
+            )
+
+        def validate(result: LLMReviewResult) -> bool:
+            return result is not None and len(result.summary) > 20
+
+        return retry_with_adaptation(
+            operation=do_review,
+            base_model=fallback_model,
+            max_attempts=2,
+            validator=validate,
+        )
