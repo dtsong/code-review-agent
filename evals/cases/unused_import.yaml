@@ -1,0 +1,14 @@
+name: "Unused Import"
+diff_file: "unused_import.patch"
+pr_description: "Reorganize imports to improve clarity"
+focus_areas:
+  - "code_quality"
+
+expected_issues:
+  - severity: "low"
+    category: "code_quality"
+    file: "src/utils/helpers.py"
+    line_range: [6, 6]
+    description_contains: "unused"
+
+expected_confidence: [0.5, 0.8]  # Medium confidence for style issues

@@ -1,7 +1,14 @@
 """GitHub comment formatting and posting."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from pr_review_agent.review.confidence import ConfidenceResult
 from pr_review_agent.review.llm_reviewer import InlineComment, LLMReviewResult
+
+if TYPE_CHECKING:
+    from pr_review_agent.execution.degradation import DegradationResult
 
 
 def format_as_markdown(
@@ -104,3 +111,71 @@ def build_review_comments(
         comments.append(comment)
 
     return comments
+
+
+_LEVEL_LABELS = {
+    "full": "Full Review",
+    "reduced": "Reduced Review (Fallback Model)",
+    "gates_only": "Gates Only (LLM Unavailable)",
+    "minimal": "Minimal (Infrastructure Error)",
+}
+
+
+def format_degraded_review(result: DegradationResult) -> str:
+    """Format a degraded review result as GitHub-flavored markdown.
+
+    Used when LLM review is unavailable (gates-only or minimal).
+    Full/reduced reviews with a review_result use format_as_markdown instead.
+    """
+    from pr_review_agent.execution.degradation import DegradationLevel
+
+    lines = []
+    level_label = _LEVEL_LABELS.get(result.level.value, result.level.value)
+
+    if result.level == DegradationLevel.GATES_ONLY:
+        # Gates-only - show what deterministic checks found
+        lines.append("## AI Code Review - Gates Only")
+        lines.append("")
+        lines.append(f"> **{level_label}**")
+        if result.error_message:
+            lines.append(f"> {result.error_message}")
+        lines.append("")
+
+        if result.gate_results:
+            lines.append("### Gate Results")
+            for gate_name, gate_result in result.gate_results.items():
+                status = "PASS" if getattr(gate_result, "passed", False) else "FAIL"
+                lines.append(f"- **{gate_name}**: {status}")
+            lines.append("")
+
+        if result.errors:
+            lines.append("### Errors")
+            for error in result.errors:
+                lines.append(f"- {error}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append("<sub>LLM review was unavailable. Only deterministic gates ran.</sub>")
+
+    else:
+        # Minimal - just show error
+        lines.append("## AI Code Review - Service Unavailable")
+        lines.append("")
+        lines.append(f"> **{level_label}**")
+        if result.error_message:
+            lines.append(f"> {result.error_message}")
+        lines.append("")
+        lines.append("The review service encountered an infrastructure issue. ")
+        lines.append("Please retry or request a manual review.")
+        lines.append("")
+
+        if result.errors:
+            lines.append("### Errors")
+            for error in result.errors:
+                lines.append(f"- {error}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append("<sub>No review data available.</sub>")
+
+    return "\n".join(lines)

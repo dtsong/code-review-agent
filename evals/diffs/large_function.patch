@@ -1,0 +1,55 @@
+diff --git a/src/analytics/report.py b/src/analytics/report.py
+index abc1234..def5678 100644
+--- a/src/analytics/report.py
++++ b/src/analytics/report.py
+@@ -15,6 +15,45 @@ class ReportGenerator:
+         self.db = database
+
+     def generate_monthly_report(self, month: int, year: int) -> dict:
+-        """Generate monthly analytics report."""
+-        # Implementation here
+-        pass
++        """Generate comprehensive monthly analytics report with all metrics."""
++        start_date = datetime(year, month, 1)
++        if month == 12:
++            end_date = datetime(year + 1, 1, 1)
++        else:
++            end_date = datetime(year, month + 1, 1)
++
++        # Get user metrics
++        user_query = "SELECT COUNT(*) FROM users WHERE created_at BETWEEN %s AND %s"
++        new_users = self.db.execute(user_query, (start_date, end_date)).fetchone()[0]
++
++        active_query = "SELECT COUNT(DISTINCT user_id) FROM sessions WHERE created_at BETWEEN %s AND %s"
++        active_users = self.db.execute(active_query, (start_date, end_date)).fetchone()[0]
++
++        # Get revenue metrics
++        revenue_query = "SELECT SUM(amount) FROM payments WHERE created_at BETWEEN %s AND %s AND status = 'completed'"
++        total_revenue = self.db.execute(revenue_query, (start_date, end_date)).fetchone()[0] or 0
++
++        # Get product metrics
++        product_query = "SELECT product_id, COUNT(*) as sales FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.created_at BETWEEN %s AND %s GROUP BY product_id ORDER BY sales DESC LIMIT 10"
++        top_products = self.db.execute(product_query, (start_date, end_date)).fetchall()
++
++        # Get geographic metrics
++        geo_query = "SELECT country, COUNT(*) as users FROM users WHERE created_at BETWEEN %s AND %s GROUP BY country ORDER BY users DESC LIMIT 20"
++        geographic_data = self.db.execute(geo_query, (start_date, end_date)).fetchall()
++
++        # Calculate conversion rates
++        conversion_query = "SELECT COUNT(*) FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.created_at BETWEEN %s AND %s"
++        total_new_users = self.db.execute(conversion_query, (start_date, end_date)).fetchone()[0]
++
++        purchase_query = "SELECT COUNT(DISTINCT user_id) FROM orders WHERE created_at BETWEEN %s AND %s"
++        purchasing_users = self.db.execute(purchase_query, (start_date, end_date)).fetchone()[0]
++
++        conversion_rate = (purchasing_users / total_new_users * 100) if total_new_users > 0 else 0
++
++        return {
++            "period": f"{month:02d}/{year}",
++            "new_users": new_users,
++            "active_users": active_users,
++            "total_revenue": total_revenue,
++            "top_products": top_products,
++            "geographic_distribution": geographic_data,
++            "conversion_rate": conversion_rate
++        }
