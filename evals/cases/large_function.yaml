@@ -1,0 +1,15 @@
+name: "Large Function"
+diff_file: "large_function.patch"
+pr_description: "Expand monthly report generation with comprehensive analytics"
+focus_areas:
+  - "maintainability"
+  - "code_structure"
+
+expected_issues:
+  - severity: "medium"
+    category: "maintainability"
+    file: "src/analytics/report.py"
+    line_range: [17, 54]
+    description_contains: "function"
+
+expected_confidence: [0.4, 0.7]  # Lower confidence for subjective code quality issues

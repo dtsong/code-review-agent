@@ -1,0 +1,20 @@
+diff --git a/src/services/payment.py b/src/services/payment.py
+index abc1234..def5678 100644
+--- a/src/services/payment.py
++++ b/src/services/payment.py
+@@ -18,12 +18,8 @@ def process_payment(amount: float, card_token: str) -> dict:
+     """Process payment using external payment API."""
+     payload = {"amount": amount, "token": card_token}
+
+-    try:
+-        response = requests.post(PAYMENT_API_URL, json=payload, timeout=10)
+-        response.raise_for_status()
+-        return {"success": True, "transaction_id": response.json()["id"]}
+-    except requests.RequestException as e:
+-        logger.error(f"Payment failed: {e}")
+-        return {"success": False, "error": str(e)}
++    response = requests.post(PAYMENT_API_URL, json=payload)
++    data = response.json()
++    return {"success": True, "transaction_id": data["id"]}
+
+ def validate_card_token(token: str) -> bool:

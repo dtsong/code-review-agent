@@ -1,9 +1,10 @@
 """Intelligent retry handler with exponential backoff and strategy adaptation."""
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 import anthropic
 

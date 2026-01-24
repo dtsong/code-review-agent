@@ -200,12 +200,26 @@ def main() -> int:
         description="AI-powered PR review agent",
         prog="pr-review-agent",
     )
-    parser.add_argument("--repo", required=True, help="GitHub repo (owner/repo)")
-    parser.add_argument("--pr", required=True, type=int, help="PR number")
+    parser.add_argument("--repo", help="GitHub repo (owner/repo)")
+    parser.add_argument("--pr", type=int, help="PR number")
     parser.add_argument("--config", default=".ai-review.yaml", help="Config file path")
     parser.add_argument("--post-comment", action="store_true", help="Post comment to GitHub")
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Run in evaluation mode (redirects to eval runner)"
+    )
 
     args = parser.parse_args()
+
+    # Handle evaluation mode
+    if args.eval:
+        print("Evaluation mode enabled - use 'uv run pr-review-eval --suite evals/cases/' instead")
+        return 1
+
+    # Validate required arguments for normal mode
+    if not args.repo or not args.pr:
+        parser.error("--repo and --pr are required for normal operation")
 
     # Get credentials from environment
     github_token = os.environ.get("GITHUB_TOKEN")
