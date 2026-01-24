@@ -6,12 +6,29 @@ from pr_review_agent.config import Config
 from pr_review_agent.github_client import PRData
 from pr_review_agent.review.llm_reviewer import LLMReviewResult
 
-SEVERITY_WEIGHTS = {
-    "critical": 0.6,
-    "major": 0.3,
-    "minor": 0.1,
-    "suggestion": 0.25,
-}
+
+@dataclass
+class CalibrationWeights:
+    """Tunable severity weights for confidence calculation."""
+
+    critical: float = 0.6
+    major: float = 0.3
+    minor: float = 0.1
+    suggestion: float = 0.25
+
+    def as_dict(self) -> dict[str, float]:
+        """Convert to dict for lookup by severity name."""
+        return {
+            "critical": self.critical,
+            "major": self.major,
+            "minor": self.minor,
+            "suggestion": self.suggestion,
+        }
+
+
+DEFAULT_WEIGHTS = CalibrationWeights()
+
+SEVERITY_WEIGHTS = DEFAULT_WEIGHTS.as_dict()
 
 
 @dataclass
@@ -28,8 +45,11 @@ def calculate_confidence(
     review: LLMReviewResult,
     pr: PRData,
     config: Config,
+    weights: CalibrationWeights | None = None,
 ) -> ConfidenceResult:
     """Calculate confidence score based on review results."""
+    weight_map = (weights or DEFAULT_WEIGHTS).as_dict()
+
     # Start with base score
     score = 1.0
     factors = {}
@@ -37,7 +57,7 @@ def calculate_confidence(
     # Deduct for issues by severity
     issue_penalty = 0.0
     for issue in review.issues:
-        penalty = SEVERITY_WEIGHTS.get(issue.severity, 0.05)
+        penalty = weight_map.get(issue.severity, 0.05)
         issue_penalty += penalty
 
     score -= issue_penalty
