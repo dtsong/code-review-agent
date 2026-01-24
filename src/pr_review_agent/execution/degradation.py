@@ -10,7 +10,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from pr_review_agent.execution.retry_handler import RetryStrategy, retry_with_adaptation
+from pr_review_agent.execution.retry_handler import (
+    RetryExhaustedError,
+    RetryStrategy,
+    retry_with_adaptation,
+)
+from pr_review_agent.review.chunker import ChunkStrategy, chunk_diff, merge_review_results
 from pr_review_agent.review.llm_reviewer import LLMReviewer, LLMReviewResult
 
 
@@ -67,6 +72,7 @@ class DegradedReviewPipeline:
         """Execute the review pipeline with graceful degradation.
 
         Always returns a result, never raises exceptions.
+        Tries: full → chunked (on context overflow) → reduced → gates-only.
         """
         # Try full review with retry/backoff
         try:
@@ -77,6 +83,20 @@ class DegradedReviewPipeline:
                 gate_results=self._gate_results,
                 errors=self._errors,
             )
+        except RetryExhaustedError as e:
+            self._errors.append(f"Full review failed: {e}")
+            # If context overflow was a failure, try chunked review
+            if any(a.failure_type == "context_too_long" for a in e.attempts):
+                try:
+                    review = self._run_chunked_review(self.base_model)
+                    return DegradationResult(
+                        level=DegradationLevel.FULL,
+                        review_result=review,
+                        gate_results=self._gate_results,
+                        errors=self._errors,
+                    )
+                except Exception as chunk_err:
+                    self._errors.append(f"Chunked review failed: {chunk_err}")
         except Exception as e:
             self._errors.append(f"Full review failed: {e}")
 
@@ -122,6 +142,25 @@ class DegradedReviewPipeline:
             validator=validate,
         )
         return retry_result.result
+
+    def _run_chunked_review(self, model: str) -> LLMReviewResult:
+        """Run chunked review by splitting diff into per-file chunks."""
+        chunks = chunk_diff(self.diff, strategy=ChunkStrategy.AUTO, max_lines=200)
+        if not chunks:
+            raise ValueError("No chunks produced from diff")
+
+        results: list[LLMReviewResult] = []
+        for chunk in chunks:
+            result = self._reviewer.review(
+                diff=chunk.content,
+                pr_description=self.pr_description,
+                model=model,
+                config=self.config,
+                focus_areas=self.focus_areas,
+            )
+            results.append(result)
+
+        return merge_review_results(results)
 
     def _run_reduced_review(self) -> LLMReviewResult:
         """Run reduced review using Haiku with retries."""
