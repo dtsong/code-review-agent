@@ -371,6 +371,150 @@ def test_run_review_metrics_failure(mock_pipeline_class, mock_logger_class):
     assert result["metrics_logged"] is False
 
 
+# --- Coverage gate tests ---
+
+
+@patch("pr_review_agent.main.check_coverage")
+@patch("pr_review_agent.main.run_security_scan")
+def test_run_review_coverage_gate_fails(mock_security, mock_coverage):
+    """Coverage gate failure stops review before LLM."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    mock_security.return_value = MagicMock(passed=True)
+    mock_coverage.return_value = MagicMock(
+        passed=False,
+        current_coverage=65.0,
+        reason="Coverage 65.0% is below minimum 80%",
+        recommendation="Increase test coverage to at least 80%.",
+    )
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    assert result["coverage_gate_passed"] is False
+    assert result["llm_called"] is False
+
+
+@patch("pr_review_agent.main.check_coverage")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_coverage_gate_passes(mock_pipeline_class, mock_coverage):
+    """Coverage gate passing allows LLM review to proceed."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    mock_coverage.return_value = MagicMock(passed=True, current_coverage=90.0)
+
+    mock_review = MagicMock()
+    mock_review.summary = "LGTM"
+    mock_review.issues = []
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    assert result["coverage_gate_passed"] is True
+    assert result["llm_called"] is True
+    mock_coverage.assert_called_once()
+
+
+@patch("pr_review_agent.main.check_coverage")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_coverage_gate_skipped_by_breaker(mock_pipeline_class, mock_coverage):
+    """Coverage gate skipped by circuit breaker still allows LLM review."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    # Make check_coverage take too long (simulated by circuit breaker)
+    mock_coverage.side_effect = TimeoutError("too slow")
+
+    mock_review = MagicMock()
+    mock_review.summary = "LGTM"
+    mock_review.issues = []
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    # When breaker skips, gate is not in result as failed — LLM proceeds
+    assert result["llm_called"] is True
+
+
 # --- CLI main() tests ---
 
 
