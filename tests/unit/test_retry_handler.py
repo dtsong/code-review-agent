@@ -125,7 +125,7 @@ class TestRetryWithAdaptation:
             operation=operation, base_model="claude-sonnet-4-20250514", max_attempts=3
         )
 
-        assert result == "success"
+        assert result.result == "success"
         assert operation.call_count == 1
 
     def test_retries_on_rate_limit(self):
@@ -146,7 +146,7 @@ class TestRetryWithAdaptation:
                 operation=operation, base_model="claude-sonnet-4-20250514", max_attempts=3
             )
 
-        assert result == "success"
+        assert result.result == "success"
         assert operation.call_count == 2
 
     def test_retries_on_context_too_long(self):
@@ -174,7 +174,7 @@ class TestRetryWithAdaptation:
                 max_attempts=3,
             )
 
-        assert result == "success"
+        assert result.result == "success"
         assert len(strategies_used) == 2
         # Second strategy should have summarize_diff enabled
         assert strategies_used[1].summarize_diff is True
@@ -190,7 +190,7 @@ class TestRetryWithAdaptation:
             validator=validator,
         )
 
-        assert result == "good"
+        assert result.result == "good"
         assert operation.call_count == 3
 
     def test_raises_after_max_attempts(self):
@@ -256,7 +256,7 @@ class TestRetryWithAdaptation:
                 operation=operation, base_model="claude-sonnet-4-20250514", max_attempts=3
             )
 
-        assert result == "success"
+        assert result.result == "success"
         # Should have slept twice (after first and second failure)
         assert len(sleep_calls) == 2
         # Backoff should increase (1 -> 2 seconds)

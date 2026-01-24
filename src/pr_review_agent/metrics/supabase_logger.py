@@ -1,7 +1,10 @@
 """Supabase metrics logger."""
 
+import contextlib
+
 from supabase import Client, create_client
 
+from pr_review_agent.execution.retry_handler import AttemptRecord
 from pr_review_agent.gates.lint_gate import LintGateResult
 from pr_review_agent.gates.size_gate import SizeGateResult
 from pr_review_agent.github_client import PRData
@@ -83,3 +86,28 @@ class SupabaseLogger:
         except Exception:
             # Don't fail the review if metrics logging fails
             return None
+
+    def log_attempts(
+        self,
+        review_id: str,
+        attempts: list[AttemptRecord],
+    ) -> None:
+        """Log per-attempt observability data to Supabase.
+
+        Each attempt is stored as a separate row in the review_attempts table.
+        Failures are silently ignored to avoid disrupting the review pipeline.
+        """
+        rows = [
+            {
+                "review_id": review_id,
+                "attempt_number": a.attempt_number,
+                "failure_type": a.failure_type,
+                "strategy_applied": a.strategy_applied,
+                "latency_ms": a.latency_ms,
+                "model_used": a.model_used,
+            }
+            for a in attempts
+        ]
+
+        with contextlib.suppress(Exception):
+            self.client.table("review_attempts").insert(rows).execute()

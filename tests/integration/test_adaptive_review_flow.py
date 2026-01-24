@@ -118,13 +118,13 @@ class TestRetryIntegration:
             call_count += 1
             return {"result": "success", "model": strategy.model}
 
-        result = retry_with_adaptation(
+        retry_result = retry_with_adaptation(
             operation=operation,
             base_model="claude-sonnet-4-20250514",
             max_attempts=3,
         )
 
-        assert result["result"] == "success"
+        assert retry_result.result["result"] == "success"
         assert call_count == 1
 
     @patch("time.sleep")
@@ -143,13 +143,13 @@ class TestRetryIntegration:
                 raise anthropic.RateLimitError("rate limit", response=mock_response, body={})
             return "success"
 
-        result = retry_with_adaptation(
+        retry_result = retry_with_adaptation(
             operation=operation,
             base_model="claude-sonnet-4-20250514",
             max_attempts=3,
         )
 
-        assert result == "success"
+        assert retry_result.result == "success"
         assert len(strategies_used) == 2
         # Second attempt should use Haiku after rate limit
         assert "haiku" in strategies_used[1].lower()
