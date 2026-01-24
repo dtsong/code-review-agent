@@ -115,12 +115,13 @@ class DegradedReviewPipeline:
         def validate(result: LLMReviewResult) -> bool:
             return result is not None and len(result.summary) > 20
 
-        return retry_with_adaptation(
+        retry_result = retry_with_adaptation(
             operation=do_review,
             base_model=self.base_model,
             max_attempts=3,
             validator=validate,
         )
+        return retry_result.result
 
     def _run_reduced_review(self) -> LLMReviewResult:
         """Run reduced review using Haiku with retries."""
@@ -138,9 +139,10 @@ class DegradedReviewPipeline:
         def validate(result: LLMReviewResult) -> bool:
             return result is not None and len(result.summary) > 20
 
-        return retry_with_adaptation(
+        retry_result = retry_with_adaptation(
             operation=do_review,
             base_model=fallback_model,
             max_attempts=2,
             validator=validate,
         )
+        return retry_result.result
