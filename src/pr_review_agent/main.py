@@ -22,7 +22,11 @@ from pr_review_agent.gates.size_gate import check_size
 from pr_review_agent.github_client import GitHubClient
 from pr_review_agent.metrics.supabase_logger import SupabaseLogger
 from pr_review_agent.output.console import print_results
-from pr_review_agent.output.github_comment import format_as_markdown, format_degraded_review
+from pr_review_agent.output.github_comment import (
+    format_as_markdown,
+    format_degraded_review,
+    format_pending_approval,
+)
 from pr_review_agent.review.confidence import calculate_confidence
 
 
@@ -204,9 +208,17 @@ def run_review(
     # Output results
     print_results(pr, size_result, lint_result, review_result, confidence)
 
+    # Check if escalation is needed (before posting comment)
+    needs_escalation = confidence and should_escalate(confidence, config.escalation)
+    approval_pending = needs_escalation and config.escalation.require_approval
+
     # Post comment to GitHub if requested (always post something in degraded mode)
     if post_comment:
-        if review_result and confidence:
+        if approval_pending and confidence:
+            # Post pending approval comment instead of full review
+            comment_body = format_pending_approval(confidence)
+            result["approval_pending"] = True
+        elif review_result and confidence:
             comment_body = format_as_markdown(review_result, confidence)
         else:
             comment_body = format_degraded_review(degradation_result)
@@ -217,12 +229,14 @@ def run_review(
         print(f"\nComment posted: {comment_url}")
 
     # Escalation webhook for low-confidence reviews
-    if confidence and should_escalate(confidence, config.escalation):
+    if needs_escalation:
         escalation_payload = build_payload(pr, confidence, review_result.summary)
         webhook_sent = send_webhook(escalation_payload, config.escalation)
         result["escalation_sent"] = webhook_sent
         if webhook_sent:
             print("\n⚠️  Low confidence — escalation webhook sent")
+        if approval_pending:
+            print("   📋 Comment posted as pending — awaiting human approval")
 
     result["duration_ms"] = int((time.time() - start_time) * 1000)
 

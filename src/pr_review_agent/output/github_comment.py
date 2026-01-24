@@ -93,6 +93,32 @@ def format_as_markdown(
     return result.redacted_text
 
 
+def format_pending_approval(
+    confidence: ConfidenceResult,
+) -> str:
+    """Format a pending approval comment for low-confidence reviews.
+
+    Posted when escalation fires and require_approval is True.
+    """
+    lines = []
+
+    lines.append("## AI Code Review - Pending Approval")
+    lines.append("")
+    lines.append(f"**Confidence:** {confidence.score:.2f} ({confidence.level})")
+    lines.append("")
+    lines.append(
+        "This PR has been flagged for human review due to low confidence. "
+        "The full AI review is being held pending approval."
+    )
+    lines.append("")
+    lines.append("A human reviewer has been notified and will approve or override.")
+    lines.append("")
+    lines.append("---")
+    lines.append("<sub>*Automated review pending human approval*</sub>")
+
+    return "\n".join(lines)
+
+
 def build_review_comments(
     inline_comments: list[InlineComment],
 ) -> list[dict]:

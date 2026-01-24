@@ -613,6 +613,138 @@ def test_run_review_dependency_gate_passes(mock_pipeline_class, mock_coverage, m
     mock_deps.assert_called_once()
 
 
+# --- Approval flow tests ---
+
+
+@patch("pr_review_agent.main.format_pending_approval")
+@patch("pr_review_agent.main.send_webhook")
+@patch("pr_review_agent.main.should_escalate")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_approval_pending_blocks_comment(
+    mock_pipeline_class, mock_escalate, mock_webhook, mock_format_pending
+):
+    """When approval required and escalation triggered, post pending comment."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+    mock_client.post_comment.return_value = "https://github.com/test/repo/pull/1#comment"
+
+    mock_review = MagicMock()
+    mock_review.summary = "Uncertain about this change"
+    mock_review.issues = []
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    mock_escalate.return_value = True
+    mock_webhook.return_value = True
+    mock_format_pending.return_value = "## Pending Approval\nAwaiting human review."
+
+    # Patch config to set require_approval=True
+    original_load = None
+
+    def patched_load(*args, **kwargs):
+        config = original_load(*args, **kwargs)
+        config.escalation.require_approval = True
+        return config
+
+    with patch("pr_review_agent.main.load_config") as mock_load:
+        from pr_review_agent.config import load_config as real_load
+        original_load = real_load
+        mock_load.side_effect = patched_load
+
+        result = run_review(
+            repo="test/repo",
+            pr_number=1,
+            github_client=mock_client,
+            anthropic_key="fake",
+            config_path=None,
+            post_comment=True,
+        )
+
+    assert result["approval_pending"] is True
+    assert result["escalation_sent"] is True
+    mock_format_pending.assert_called_once()
+
+
+@patch("pr_review_agent.main.send_webhook")
+@patch("pr_review_agent.main.should_escalate")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_no_approval_required_posts_full_comment(
+    mock_pipeline_class, mock_escalate, mock_webhook
+):
+    """When approval not required, post full comment even on escalation."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+    mock_client.post_comment.return_value = "https://github.com/test/repo/pull/1#comment"
+
+    mock_review = MagicMock()
+    mock_review.summary = "Uncertain about this change"
+    mock_review.issues = []
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    mock_escalate.return_value = True
+    mock_webhook.return_value = True
+
+    # Default config has require_approval=False
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+        post_comment=True,
+    )
+
+    # Should not have approval_pending when require_approval is False
+    assert result.get("approval_pending") is not True
+    assert result["escalation_sent"] is True
+    assert result["comment_posted"] is True
+
+
 # --- CLI main() tests ---
 
 

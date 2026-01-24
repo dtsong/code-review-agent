@@ -75,6 +75,7 @@ class EscalationConfig:
     webhook_url: str = ""
     trigger_below_confidence: float = 0.5
     slack_format: bool = True
+    require_approval: bool = False
 
 
 @dataclass
