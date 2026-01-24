@@ -7,6 +7,7 @@ from anthropic import Anthropic
 
 from pr_review_agent.config import Config
 from pr_review_agent.metrics.token_tracker import calculate_cost
+from pr_review_agent.review.fingerprint import fingerprint_issue
 
 REVIEW_SYSTEM_PROMPT = """\
 You are an expert code reviewer. Review the PR diff and provide actionable feedback.
@@ -125,6 +126,7 @@ class ReviewIssue:
     start_line: int | None = None
     end_line: int | None = None
     code_suggestion: str | None = None
+    fingerprint: str | None = None
 
 
 @dataclass
@@ -223,6 +225,7 @@ Please review this PR and provide your feedback in the JSON format specified."""
                 end_line=end_line,
                 code_suggestion=code_suggestion,
             )
+            issue.fingerprint = fingerprint_issue(issue)
             issues.append(issue)
 
             # Build inline comment if we have file + line info
