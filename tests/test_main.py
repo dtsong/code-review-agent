@@ -515,6 +515,104 @@ def test_run_review_coverage_gate_skipped_by_breaker(mock_pipeline_class, mock_c
     assert result["llm_called"] is True
 
 
+# --- Dependency gate tests ---
+
+
+@patch("pr_review_agent.main.check_dependencies")
+@patch("pr_review_agent.main.check_coverage")
+@patch("pr_review_agent.main.run_security_scan")
+def test_run_review_dependency_gate_fails(mock_security, mock_coverage, mock_deps):
+    """Dependency gate failure stops review before LLM."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    mock_security.return_value = MagicMock(passed=True)
+    mock_coverage.return_value = MagicMock(passed=True)
+    mock_deps.return_value = MagicMock(
+        passed=False,
+        new_deps=["requests"],
+        reason="New dependencies have known vulnerabilities: requests",
+        recommendation="Update to patched versions.",
+    )
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    assert result["dependency_gate_passed"] is False
+    assert result["llm_called"] is False
+
+
+@patch("pr_review_agent.main.check_dependencies")
+@patch("pr_review_agent.main.check_coverage")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_dependency_gate_passes(mock_pipeline_class, mock_coverage, mock_deps):
+    """Dependency gate passing allows LLM review to proceed."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    mock_coverage.return_value = MagicMock(passed=True)
+    mock_deps.return_value = MagicMock(passed=True, new_deps=[])
+
+    mock_review = MagicMock()
+    mock_review.summary = "LGTM"
+    mock_review.issues = []
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    assert result["dependency_gate_passed"] is True
+    assert result["llm_called"] is True
+    mock_deps.assert_called_once()
+
+
 # --- CLI main() tests ---
 
 

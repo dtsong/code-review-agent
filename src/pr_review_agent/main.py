@@ -15,6 +15,7 @@ from pr_review_agent.escalation.webhook import build_payload, send_webhook, shou
 from pr_review_agent.execution.degradation import DegradationLevel, DegradedReviewPipeline
 from pr_review_agent.gates.circuit_breaker import GateStatus, run_gate_with_breaker
 from pr_review_agent.gates.coverage_gate import check_coverage
+from pr_review_agent.gates.dependency_gate import check_dependencies
 from pr_review_agent.gates.lint_gate import run_lint
 from pr_review_agent.gates.security_gate import run_security_scan
 from pr_review_agent.gates.size_gate import check_size
@@ -59,6 +60,7 @@ def run_review(
         "lint_gate_passed": False,
         "security_gate_passed": False,
         "coverage_gate_passed": False,
+        "dependency_gate_passed": False,
         "llm_called": False,
         "confidence_score": 0.0,
         "comment_posted": False,
@@ -139,6 +141,26 @@ def run_review(
             result["duration_ms"] = int((time.time() - start_time) * 1000)
             return result
 
+    # Gate 5: Dependency audit (with circuit breaker)
+    dependency_breaker = run_gate_with_breaker(
+        lambda: check_dependencies(
+            diff=pr.diff,
+            block_vulnerable=config.dependencies.block_vulnerable,
+            block_deprecated=config.dependencies.block_deprecated,
+        ),
+        timeout=config.circuit_breaker.dependency_timeout,
+    )
+    if dependency_breaker.status == GateStatus.SKIPPED:
+        print(f"\n⏱️  Dependency gate skipped: {dependency_breaker.reason}")
+        dependency_result = None
+    else:
+        dependency_result = dependency_breaker.gate_result
+        result["dependency_gate_passed"] = dependency_result.passed
+        if not dependency_result.passed:
+            print(f"\n📦 Dependency gate failed: {dependency_result.reason}")
+            result["duration_ms"] = int((time.time() - start_time) * 1000)
+            return result
+
     # All gates passed - run LLM review with degradation support
     base_model = analysis.suggested_model
 
@@ -155,6 +177,7 @@ def run_review(
             "lint": lint_result,
             "security": security_result,
             "coverage": coverage_result,
+            "dependency": dependency_result,
         },
     )
     degradation_result = pipeline.execute()
