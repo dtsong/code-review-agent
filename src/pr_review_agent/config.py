@@ -89,6 +89,16 @@ class BudgetConfig:
 
 
 @dataclass
+class CircuitBreakerConfig:
+    """Circuit breaker timeouts for gate tools (in seconds)."""
+
+    lint_timeout: float = 30
+    security_timeout: float = 60
+    coverage_timeout: float = 45
+    dependency_timeout: float = 20
+
+
+@dataclass
 class ConfidenceConfig:
     """Confidence threshold configuration."""
 
@@ -109,6 +119,7 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     escalation: EscalationConfig = field(default_factory=EscalationConfig)
     budget: BudgetConfig = field(default_factory=BudgetConfig)
+    circuit_breaker: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
     confidence: ConfidenceConfig = field(default_factory=ConfidenceConfig)
     file_routing: dict | None = None
     ignore: list[str] = field(default_factory=list)
@@ -168,6 +179,12 @@ def load_config(path: Path) -> Config:
         config.budget = BudgetConfig(**{
             k: v for k, v in data["budget"].items()
             if k in BudgetConfig.__dataclass_fields__
+        })
+
+    if "circuit_breaker" in data:
+        config.circuit_breaker = CircuitBreakerConfig(**{
+            k: v for k, v in data["circuit_breaker"].items()
+            if k in CircuitBreakerConfig.__dataclass_fields__
         })
 
     if "confidence" in data:
