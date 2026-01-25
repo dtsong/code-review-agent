@@ -9,6 +9,7 @@ from pr_review_agent.config import Config
 from pr_review_agent.metrics.token_tracker import calculate_cost
 from pr_review_agent.review.fingerprint import fingerprint_issue
 from pr_review_agent.review.sanitizer import sanitize_diff
+from pr_review_agent.review.suggestion_validator import validate_suggestion
 
 REVIEW_SYSTEM_PROMPT = """\
 You are an expert code reviewer. Review the PR diff and provide actionable feedback.
@@ -244,11 +245,14 @@ Please review this PR and provide your feedback in the JSON format specified."""
                     body += f"\n\n*Suggestion: {issue.suggestion}*"
 
                 # Only include code suggestions for high-confidence issues
-                filtered_suggestion = (
-                    code_suggestion
-                    if issue.severity in ("critical", "major")
-                    else None
-                )
+                # Validate suggestion before including it
+                filtered_suggestion = None
+                if issue.severity in ("critical", "major") and code_suggestion:
+                    validated = validate_suggestion(code_suggestion, issue.file)
+                    if validated:
+                        filtered_suggestion = validated
+                    else:
+                        print(f"   ⚠ Stripped invalid suggestion for {issue.file}")
 
                 inline_comments.append(InlineComment(
                     file=issue.file,
