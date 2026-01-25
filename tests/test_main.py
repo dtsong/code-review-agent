@@ -937,3 +937,358 @@ def test_main_exception_handling(mock_gh_class, mock_run):
         exit_code = main()
 
     assert exit_code == 1
+
+
+def test_main_no_anthropic_key():
+    """main() returns 1 when ANTHROPIC_API_KEY missing."""
+    env = {"GITHUB_TOKEN": "ghp_test"}
+    with (
+        patch.dict("os.environ", env, clear=True),
+        patch("sys.argv", ["pr-review-agent", "--repo", "o/r", "--pr", "1"]),
+    ):
+        exit_code = main()
+
+    assert exit_code == 1
+
+
+# --- Circuit breaker timeout tests ---
+
+
+@patch("pr_review_agent.main.run_gate_with_breaker")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_lint_gate_skipped_by_breaker(mock_pipeline_class, mock_breaker):
+    """Lint gate skipped by circuit breaker allows review to continue."""
+    from pr_review_agent.gates.circuit_breaker import CircuitBreakerResult, GateStatus
+
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    # First call is lint (skipped), subsequent calls pass
+    lint_skipped = CircuitBreakerResult(
+        status=GateStatus.SKIPPED, reason="Timeout", gate_result=None
+    )
+    security_pass = CircuitBreakerResult(
+        status=GateStatus.PASSED, reason=None, gate_result=MagicMock(passed=True)
+    )
+    coverage_pass = CircuitBreakerResult(
+        status=GateStatus.PASSED, reason=None, gate_result=MagicMock(passed=True)
+    )
+    deps_pass = CircuitBreakerResult(
+        status=GateStatus.PASSED, reason=None, gate_result=MagicMock(passed=True)
+    )
+    mock_breaker.side_effect = [lint_skipped, security_pass, coverage_pass, deps_pass]
+
+    mock_review = MagicMock()
+    mock_review.summary = "LGTM"
+    mock_review.issues = []
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    # Lint gate was skipped so not in result, LLM proceeded
+    assert result["llm_called"] is True
+
+
+@patch("pr_review_agent.main.run_gate_with_breaker")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_security_gate_skipped_by_breaker(mock_pipeline_class, mock_breaker):
+    """Security gate skipped by circuit breaker allows review to continue."""
+    from pr_review_agent.gates.circuit_breaker import CircuitBreakerResult, GateStatus
+
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    lint_pass = CircuitBreakerResult(
+        status=GateStatus.PASSED, reason=None, gate_result=MagicMock(passed=True)
+    )
+    security_skipped = CircuitBreakerResult(
+        status=GateStatus.SKIPPED, reason="Timeout", gate_result=None
+    )
+    coverage_pass = CircuitBreakerResult(
+        status=GateStatus.PASSED, reason=None, gate_result=MagicMock(passed=True)
+    )
+    deps_pass = CircuitBreakerResult(
+        status=GateStatus.PASSED, reason=None, gate_result=MagicMock(passed=True)
+    )
+    mock_breaker.side_effect = [lint_pass, security_skipped, coverage_pass, deps_pass]
+
+    mock_review = MagicMock()
+    mock_review.summary = "LGTM"
+    mock_review.issues = []
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    assert result["llm_called"] is True
+
+
+# --- Degradation level display tests ---
+
+
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_reduced_degradation_level(mock_pipeline_class):
+    """Reduced degradation level displays correctly."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    mock_review = MagicMock()
+    mock_review.summary = "Reduced review result"
+    mock_review.issues = []
+    mock_review.model = "claude-haiku-4-5-20251001"
+    mock_review.cost_usd = 0.0001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.REDUCED,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    assert result["degradation_level"] == "reduced"
+    assert result["llm_called"] is True
+
+
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_gates_only_degradation_level(mock_pipeline_class):
+    """Gates-only degradation level displays correctly."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.GATES_ONLY,
+        review_result=None,
+        gate_results={"size": MagicMock(passed=True)},
+        error_message="LLM unavailable",
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    assert result["degradation_level"] == "gates_only"
+    assert result["llm_called"] is False
+
+
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_minimal_degradation_level(mock_pipeline_class):
+    """Minimal degradation level displays correctly."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.MINIMAL,
+        review_result=None,
+        gate_results={},
+        error_message="Infrastructure failure",
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+    )
+
+    assert result["degradation_level"] == "minimal"
+    assert result["llm_called"] is False
+
+
+# --- Degraded review comment posting tests ---
+
+
+@patch("pr_review_agent.main.format_degraded_review")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_posts_degraded_comment(mock_pipeline_class, mock_format_degraded):
+    """When no review result, post degraded review comment."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+    mock_client.post_comment.return_value = "https://github.com/test/repo/pull/1#comment"
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.GATES_ONLY,
+        review_result=None,
+        gate_results={"size": MagicMock(passed=True)},
+        error_message="LLM unavailable",
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    mock_format_degraded.return_value = "## Gates Only Mode\nLLM unavailable"
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+        post_comment=True,
+    )
+
+    assert result["comment_posted"] is True
+    mock_format_degraded.assert_called_once()
+    mock_client.post_comment.assert_called_once()
+
+
+# --- GitHub App credentials with base64 encoding ---
+
+
+@patch("pr_review_agent.main.run_review")
+@patch("pr_review_agent.main.GitHubClient")
+def test_main_with_app_credentials_base64(mock_gh_class, mock_run):
+    """main() decodes base64-encoded PEM key."""
+    import base64
+
+    mock_run.return_value = {"llm_called": True}
+
+    pem_key = "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----"
+    b64_key = base64.b64encode(pem_key.encode()).decode()
+
+    env = {
+        "GITHUB_APP_ID": "123",
+        "GITHUB_APP_INSTALLATION_ID": "456",
+        "GITHUB_APP_PRIVATE_KEY_BASE64": b64_key,
+        "ANTHROPIC_API_KEY": "sk-ant-test",
+    }
+    with (
+        patch.dict("os.environ", env, clear=True),
+        patch("sys.argv", ["pr-review-agent", "--repo", "o/r", "--pr", "1"]),
+    ):
+        exit_code = main()
+
+    assert exit_code == 0
+    mock_gh_class.from_app_credentials.assert_called_once()
+    # Verify the decoded key was passed
+    call_args = mock_gh_class.from_app_credentials.call_args[0]
+    assert "-----BEGIN RSA PRIVATE KEY-----" in call_args[2]
