@@ -113,6 +113,7 @@ def test_run_review_posts_comment(mock_pipeline_class):
     mock_review = MagicMock()
     mock_review.summary = "LGTM - looks good to me"
     mock_review.issues = []
+    mock_review.inline_comments = []  # No inline comments - uses single comment
     mock_review.strengths = ["Good"]
     mock_review.concerns = []
     mock_review.questions = []
@@ -743,6 +744,120 @@ def test_run_review_no_approval_required_posts_full_comment(
     assert result.get("approval_pending") is not True
     assert result["escalation_sent"] is True
     assert result["comment_posted"] is True
+
+
+# --- Inline comments tests ---
+
+
+@patch("pr_review_agent.main.build_review_comments")
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_posts_inline_comments(mock_pipeline_class, mock_build_comments):
+    """When inline comments exist, post via review API."""
+    from pr_review_agent.review.llm_reviewer import InlineComment
+
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+    mock_client.post_review_comments.return_value = "https://github.com/test/repo/pull/1#review"
+
+    mock_review = MagicMock()
+    mock_review.summary = "Found some issues"
+    mock_review.issues = []
+    mock_review.inline_comments = [
+        InlineComment(
+            file="file.py", start_line=10, end_line=10, body="Fix this", suggestion=None
+        ),
+    ]
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    mock_build_comments.return_value = [
+        {"path": "file.py", "line": 10, "body": "Fix this"},
+    ]
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+        post_comment=True,
+    )
+
+    assert result["comment_posted"] is True
+    mock_client.post_review_comments.assert_called_once()
+    mock_build_comments.assert_called_once()
+
+
+@patch("pr_review_agent.main.DegradedReviewPipeline")
+def test_run_review_falls_back_to_single_comment(mock_pipeline_class):
+    """When no inline comments, post single PR comment."""
+    mock_pr = MagicMock()
+    mock_pr.owner = "test"
+    mock_pr.repo = "repo"
+    mock_pr.number = 1
+    mock_pr.title = "PR"
+    mock_pr.author = "user"
+    mock_pr.description = "desc"
+    mock_pr.diff = "+ code"
+    mock_pr.url = "https://github.com/test/repo/pull/1"
+    mock_pr.lines_added = 50
+    mock_pr.lines_removed = 10
+    mock_pr.lines_changed = 60
+    mock_pr.files_changed = ["file.py"]
+
+    mock_client = MagicMock()
+    mock_client.fetch_pr.return_value = mock_pr
+    mock_client.post_comment.return_value = "https://github.com/test/repo/pull/1#comment"
+
+    mock_review = MagicMock()
+    mock_review.summary = "LGTM"
+    mock_review.issues = []
+    mock_review.inline_comments = []  # No inline comments
+    mock_review.model = "claude-sonnet-4-20250514"
+    mock_review.cost_usd = 0.001
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute.return_value = DegradationResult(
+        level=DegradationLevel.FULL,
+        review_result=mock_review,
+        gate_results={},
+    )
+    mock_pipeline_class.return_value = mock_pipeline
+
+    result = run_review(
+        repo="test/repo",
+        pr_number=1,
+        github_client=mock_client,
+        anthropic_key="fake",
+        config_path=None,
+        post_comment=True,
+    )
+
+    assert result["comment_posted"] is True
+    mock_client.post_comment.assert_called_once()
+    mock_client.post_review_comments.assert_not_called()
 
 
 # --- CLI main() tests ---

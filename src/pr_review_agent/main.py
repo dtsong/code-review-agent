@@ -23,6 +23,7 @@ from pr_review_agent.github_client import GitHubClient
 from pr_review_agent.metrics.supabase_logger import SupabaseLogger
 from pr_review_agent.output.console import print_results
 from pr_review_agent.output.github_comment import (
+    build_review_comments,
     format_as_markdown,
     format_degraded_review,
     format_pending_approval,
@@ -218,12 +219,21 @@ def run_review(
             # Post pending approval comment instead of full review
             comment_body = format_pending_approval(confidence)
             result["approval_pending"] = True
+            comment_url = github.post_comment(owner, repo_name, pr_number, comment_body)
         elif review_result and confidence:
             comment_body = format_as_markdown(review_result, confidence)
+            # Use inline comments if available, fall back to single comment
+            if review_result.inline_comments:
+                inline_comments = build_review_comments(review_result.inline_comments)
+                comment_url = github.post_review_comments(
+                    owner, repo_name, pr_number, inline_comments, body=comment_body
+                )
+            else:
+                comment_url = github.post_comment(owner, repo_name, pr_number, comment_body)
         else:
             comment_body = format_degraded_review(degradation_result)
+            comment_url = github.post_comment(owner, repo_name, pr_number, comment_body)
 
-        comment_url = github.post_comment(owner, repo_name, pr_number, comment_body)
         result["comment_posted"] = True
         result["comment_url"] = comment_url
         print(f"\nComment posted: {comment_url}")
