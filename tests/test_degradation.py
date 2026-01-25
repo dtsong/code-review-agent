@@ -192,6 +192,348 @@ class TestDegradedReviewPipeline:
         assert hasattr(pipeline, "_reviewer")
 
 
+class TestChunkedReviewFallback:
+    """Test chunked review fallback on context_too_long failure."""
+
+    def _make_config(self):
+        config = Mock()
+        config.llm.simple_model = "claude-haiku-4-5-20251001"
+        return config
+
+    def _make_pipeline(self, **kwargs):
+        defaults = {
+            "anthropic_key": "fake-key",
+            "diff": "diff content",
+            "pr_description": "test pr",
+            "config": self._make_config(),
+            "focus_areas": [],
+        }
+        defaults.update(kwargs)
+        return DegradedReviewPipeline(**defaults)
+
+    def test_chunked_fallback_on_context_too_long(self):
+        """When full review fails with context_too_long, try chunked review."""
+        from pr_review_agent.execution.retry_handler import (
+            AttemptRecord,
+            RetryExhaustedError,
+        )
+
+        pipeline = self._make_pipeline()
+
+        # Create RetryExhaustedError with context_too_long attempt
+        attempts = [AttemptRecord(
+            attempt_number=1, model_used="sonnet", failure_type="context_too_long"
+        )]
+        context_error = RetryExhaustedError("Context too long", attempts)
+
+        mock_chunked_result = Mock()
+        mock_chunked_result.summary = "Chunked review completed successfully"
+
+        with (
+            patch.object(pipeline, "_run_full_review", side_effect=context_error),
+            patch.object(pipeline, "_run_chunked_review", return_value=mock_chunked_result),
+        ):
+            result = pipeline.execute()
+
+        assert result.level == DegradationLevel.FULL
+        assert result.review_result == mock_chunked_result
+
+    def test_chunked_fallback_failure_continues_to_reduced(self):
+        """When chunked review fails, continue to reduced review."""
+        from pr_review_agent.execution.retry_handler import (
+            AttemptRecord,
+            RetryExhaustedError,
+        )
+
+        pipeline = self._make_pipeline()
+
+        attempts = [AttemptRecord(
+            attempt_number=1, model_used="sonnet", failure_type="context_too_long"
+        )]
+        context_error = RetryExhaustedError("Context too long", attempts)
+
+        mock_reduced_result = Mock()
+        mock_reduced_result.summary = "Reduced review from haiku"
+
+        with (
+            patch.object(pipeline, "_run_full_review", side_effect=context_error),
+            patch.object(pipeline, "_run_chunked_review", side_effect=Exception("Chunk failed")),
+            patch.object(pipeline, "_run_reduced_review", return_value=mock_reduced_result),
+        ):
+            result = pipeline.execute()
+
+        assert result.level == DegradationLevel.REDUCED
+        assert "Chunked review failed" in result.errors[1]
+
+    def test_no_chunked_fallback_for_other_errors(self):
+        """When full review fails without context_too_long, skip chunked."""
+        from pr_review_agent.execution.retry_handler import (
+            AttemptRecord,
+            RetryExhaustedError,
+        )
+
+        pipeline = self._make_pipeline()
+
+        # Create RetryExhaustedError with rate_limit (not context_too_long)
+        attempts = [AttemptRecord(attempt_number=1, model_used="sonnet", failure_type="rate_limit")]
+        rate_error = RetryExhaustedError("Rate limit", attempts)
+
+        mock_reduced_result = Mock()
+        mock_reduced_result.summary = "Reduced review from haiku"
+
+        with (
+            patch.object(pipeline, "_run_full_review", side_effect=rate_error),
+            patch.object(pipeline, "_run_chunked_review") as mock_chunked,
+            patch.object(pipeline, "_run_reduced_review", return_value=mock_reduced_result),
+        ):
+            result = pipeline.execute()
+
+        # Chunked should NOT be called since error wasn't context_too_long
+        mock_chunked.assert_not_called()
+        assert result.level == DegradationLevel.REDUCED
+
+
+class TestRunChunkedReview:
+    """Test _run_chunked_review internals."""
+
+    def _make_config(self):
+        config = Mock()
+        config.llm.simple_model = "claude-haiku-4-5-20251001"
+        return config
+
+    def _make_pipeline(self, **kwargs):
+        defaults = {
+            "anthropic_key": "fake-key",
+            "diff": "diff content",
+            "pr_description": "test pr",
+            "config": self._make_config(),
+            "focus_areas": [],
+        }
+        defaults.update(kwargs)
+        return DegradedReviewPipeline(**defaults)
+
+    def test_empty_chunks_raises_value_error(self):
+        """When chunk_diff returns empty list, raise ValueError."""
+        import pytest
+
+        pipeline = self._make_pipeline()
+
+        with (
+            patch("pr_review_agent.execution.degradation.chunk_diff", return_value=[]),
+            pytest.raises(ValueError, match="No chunks produced"),
+        ):
+            pipeline._run_chunked_review("claude-sonnet-4-20250514")
+
+    def test_chunks_are_reviewed_and_merged(self):
+        """Each chunk is reviewed and results are merged."""
+        pipeline = self._make_pipeline()
+
+        chunk1 = Mock()
+        chunk1.content = "diff for file1"
+        chunk2 = Mock()
+        chunk2.content = "diff for file2"
+
+        result1 = Mock()
+        result2 = Mock()
+        merged = Mock()
+        merged.summary = "Merged review"
+
+        chunk_patch = "pr_review_agent.execution.degradation.chunk_diff"
+        merge_patch = "pr_review_agent.execution.degradation.merge_review_results"
+        with (
+            patch(chunk_patch, return_value=[chunk1, chunk2]),
+            patch(merge_patch, return_value=merged) as mock_merge,
+            patch.object(pipeline._reviewer, "review", side_effect=[result1, result2]),
+        ):
+            result = pipeline._run_chunked_review("claude-sonnet-4-20250514")
+
+        assert result == merged
+        mock_merge.assert_called_once_with([result1, result2])
+
+
+class TestRunReducedReview:
+    """Test _run_reduced_review internals."""
+
+    def _make_config(self):
+        config = Mock()
+        config.llm.simple_model = "claude-haiku-4-5-20251001"
+        return config
+
+    def _make_pipeline(self, **kwargs):
+        defaults = {
+            "anthropic_key": "fake-key",
+            "diff": "diff content",
+            "pr_description": "test pr",
+            "config": self._make_config(),
+            "focus_areas": [],
+        }
+        defaults.update(kwargs)
+        return DegradedReviewPipeline(**defaults)
+
+    def test_uses_simple_model_from_config(self):
+        """Reduced review uses config.llm.simple_model."""
+        config = self._make_config()
+        config.llm.simple_model = "claude-haiku-4-5-20251001"
+        pipeline = self._make_pipeline(config=config)
+
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.summary = "Valid review summary content"
+
+        with patch(
+            "pr_review_agent.execution.degradation.retry_with_adaptation",
+            return_value=mock_result,
+        ) as mock_retry:
+            pipeline._run_reduced_review()
+
+        mock_retry.assert_called_once()
+        call_kwargs = mock_retry.call_args[1]
+        assert call_kwargs["base_model"] == "claude-haiku-4-5-20251001"
+
+    def test_uses_max_attempts_2(self):
+        """Reduced review uses max_attempts=2."""
+        pipeline = self._make_pipeline()
+
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.summary = "Valid review summary content"
+
+        with patch(
+            "pr_review_agent.execution.degradation.retry_with_adaptation",
+            return_value=mock_result,
+        ) as mock_retry:
+            pipeline._run_reduced_review()
+
+        call_kwargs = mock_retry.call_args[1]
+        assert call_kwargs["max_attempts"] == 2
+
+    def test_validator_rejects_short_summary(self):
+        """Validator rejects summaries shorter than 20 chars."""
+        pipeline = self._make_pipeline()
+
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.summary = "Valid review summary content"
+
+        with patch(
+            "pr_review_agent.execution.degradation.retry_with_adaptation",
+            return_value=mock_result,
+        ) as mock_retry:
+            pipeline._run_reduced_review()
+
+        # Extract and test the validator function
+        call_kwargs = mock_retry.call_args[1]
+        validator = call_kwargs["validator"]
+
+        short_result = Mock()
+        short_result.summary = "Short"
+        assert validator(short_result) is False
+
+        valid_result = Mock()
+        valid_result.summary = "This is a valid summary with enough content"
+        assert validator(valid_result) is True
+
+        assert validator(None) is False
+
+
+class TestRunFullReview:
+    """Test _run_full_review internals."""
+
+    def _make_config(self):
+        config = Mock()
+        config.llm.simple_model = "claude-haiku-4-5-20251001"
+        return config
+
+    def _make_pipeline(self, **kwargs):
+        defaults = {
+            "anthropic_key": "fake-key",
+            "diff": "diff content",
+            "pr_description": "test pr",
+            "config": self._make_config(),
+            "focus_areas": [],
+        }
+        defaults.update(kwargs)
+        return DegradedReviewPipeline(**defaults)
+
+    def test_uses_max_attempts_3(self):
+        """Full review uses max_attempts=3."""
+        pipeline = self._make_pipeline()
+
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.summary = "Valid review summary content"
+
+        with patch(
+            "pr_review_agent.execution.degradation.retry_with_adaptation",
+            return_value=mock_result,
+        ) as mock_retry:
+            pipeline._run_full_review()
+
+        call_kwargs = mock_retry.call_args[1]
+        assert call_kwargs["max_attempts"] == 3
+
+    def test_uses_base_model(self):
+        """Full review uses the base_model from constructor."""
+        pipeline = self._make_pipeline(base_model="claude-sonnet-4-20250514")
+
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.summary = "Valid review summary content"
+
+        with patch(
+            "pr_review_agent.execution.degradation.retry_with_adaptation",
+            return_value=mock_result,
+        ) as mock_retry:
+            pipeline._run_full_review()
+
+        call_kwargs = mock_retry.call_args[1]
+        assert call_kwargs["base_model"] == "claude-sonnet-4-20250514"
+
+    def test_validator_rejects_none(self):
+        """Validator rejects None result."""
+        pipeline = self._make_pipeline()
+
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.summary = "Valid review summary content"
+
+        with patch(
+            "pr_review_agent.execution.degradation.retry_with_adaptation",
+            return_value=mock_result,
+        ) as mock_retry:
+            pipeline._run_full_review()
+
+        call_kwargs = mock_retry.call_args[1]
+        validator = call_kwargs["validator"]
+
+        assert validator(None) is False
+
+    def test_validator_rejects_short_summary(self):
+        """Validator rejects summaries shorter than 20 chars."""
+        pipeline = self._make_pipeline()
+
+        mock_result = Mock()
+        mock_result.result = Mock()
+        mock_result.result.summary = "Valid review summary content"
+
+        with patch(
+            "pr_review_agent.execution.degradation.retry_with_adaptation",
+            return_value=mock_result,
+        ) as mock_retry:
+            pipeline._run_full_review()
+
+        call_kwargs = mock_retry.call_args[1]
+        validator = call_kwargs["validator"]
+
+        short = Mock()
+        short.summary = "Too short"
+        assert validator(short) is False
+
+        valid = Mock()
+        valid.summary = "This is a sufficiently long summary"
+        assert validator(valid) is True
+
+
 class TestDegradationFormatting:
     """Test formatting of degraded review results."""
 
